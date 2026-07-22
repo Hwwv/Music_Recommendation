@@ -2,7 +2,7 @@
 
 This plan translates the proposal into code milestones. Calendar dates remain intentionally unset because the previously discussed working schedule was not present in the project workspace or identifiable in Drive.
 
-## Milestone 1 — Experiment spine (complete)
+## Milestone 1 — Experiment spine
 
 - Define normalized interaction and track-feature contracts.
 - Add per-user leave-one-out splitting with no held-out item leakage.
