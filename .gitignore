@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.tools/
+data/raw/*
+data/processed/*
+data/databases/*.duckdb
+data/databases/*.wal
+artifacts/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/databases/.gitkeep
+!artifacts/.gitkeep
