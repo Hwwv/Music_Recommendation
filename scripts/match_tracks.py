@@ -57,6 +57,10 @@ def main() -> None:
         JOIN spotify.spotify_track_artists AS a
           ON s.track_id = a.track_id
          AND l.artist_name_norm = a.artist_name_norm
+        WHERE l.track_name_norm <> ''
+          AND l.artist_name_norm <> ''
+          AND s.track_name_norm <> ''
+          AND a.artist_name_norm <> ''
         """
     )
 

@@ -172,8 +172,8 @@ crosswalk and integrated interactions.
 ```text
 available_users = 476451
 available_spotify_tracks = 89740
-reviewed_crosswalk_rows = 34976
-integrated_interactions = 2934320
+reviewed_crosswalk_rows = 35788
+integrated_interactions = 2937852
 ```
 
 After matching begins, an accepted crosswalk row must reference an existing

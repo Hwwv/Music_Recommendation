@@ -384,19 +384,23 @@ Current results are:
 
 | Metric | Count |
 |---|---:|
-| Listening title/artist keys | 3,075,750 |
-| Accepted unique exact keys | 34,976 |
-| Ambiguous exact keys | 3,878 |
-| Unmatched keys | 3,036,896 |
-| Integrated user-track interactions | 2,934,320 |
-| Users with at least one exact match | 427,845 |
-| Spotify tracks represented | 34,525 |
-| Users with at least 5 matches | 249,804 |
-| Users with at least 10 matches | 106,026 |
-| Users with at least 20 matches | 13,821 |
+| Listening title/artist keys | 3,242,298 |
+| Accepted unique exact keys | 35,788 |
+| Ambiguous exact keys | 3,655 |
+| Unmatched keys | 3,202,855 |
+| Integrated user-track interactions | 2,937,852 |
+| Users with at least one exact match | 427,256 |
+| Spotify tracks represented | 35,344 |
+| Users with at least 5 matches | 250,180 |
+| Users with at least 10 matches | 106,408 |
+| Users with at least 20 matches | 13,876 |
 
-Fifty-one integrated interactions combine multiple listening title/artist keys
+Forty-six integrated interactions combine multiple listening title/artist keys
 that resolved to the same `(user_id, spotify_track_id)`. These use maximum
 play count and minimum rank rather than summing potentially duplicated source
 representations. Relaxed or fuzzy matching should not begin until accepted and
 ambiguous samples from this baseline are reviewed.
+
+Normalization preserves Unicode letters and numbers using Unicode character
+properties. This prevents unrelated Chinese, Japanese, Korean, and other
+non-Latin titles from collapsing into an empty normalized key.

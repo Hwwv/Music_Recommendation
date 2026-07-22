@@ -26,6 +26,7 @@ def q(path: Path) -> str:
 def main() -> None:
     con = duckdb.connect(str(DB / "integration.duckdb"), read_only=True)
     con.execute(f"ATTACH '{q(DB / 'listening_clean.duckdb')}' AS listening (READ_ONLY)")
+    con.execute(f"ATTACH '{q(DB / 'spotify.duckdb')}' AS spotify (READ_ONLY)")
 
     con.execute(
         f"""
@@ -35,14 +36,24 @@ def main() -> None:
                 l.representative_artist_name AS listening_artist,
                 p.track_name AS spotify_track,
                 p.artists AS spotify_artists,
+                p.album_name AS spotify_album,
+                (
+                    SELECT string_agg(g.track_genre, '; ' ORDER BY g.track_genre)
+                    FROM spotify.spotify_track_genres g
+                    WHERE g.track_id = p.track_id
+                ) AS spotify_genres,
                 x.spotify_track_id,
+                p.duration_ms,
                 l.user_count,
                 l.interaction_count,
-                x.match_tier
+                x.match_tier,
+                '' AS review_label,
+                '' AS review_reason,
+                '' AS reviewer
             FROM track_crosswalk x
             JOIN listening.listening_track_keys l
               USING (track_name_norm, artist_name_norm)
-            JOIN project_tracks p ON x.spotify_track_id = p.track_id
+            JOIN spotify.spotify_tracks p ON x.spotify_track_id = p.track_id
             ORDER BY hash(x.track_name_norm, x.artist_name_norm)
             LIMIT 200
         ) TO '{q(OUT / 'accepted_exact_v1_review.csv')}'
@@ -66,9 +77,20 @@ def main() -> None:
                 c.spotify_track_id,
                 p.track_name AS spotify_track,
                 p.artists AS spotify_artists,
+                p.album_name AS spotify_album,
+                (
+                    SELECT string_agg(g.track_genre, '; ' ORDER BY g.track_genre)
+                    FROM spotify.spotify_track_genres g
+                    WHERE g.track_id = p.track_id
+                ) AS spotify_genres,
+                p.duration_ms,
                 p.popularity,
                 d.candidate_count,
-                c.match_tier
+                c.match_tier,
+                '' AS review_action,
+                '' AS selected_spotify_track_id,
+                '' AS review_reason,
+                '' AS reviewer
             FROM sampled_keys k
             JOIN track_match_decisions d
               USING (track_name_norm, artist_name_norm)
@@ -76,7 +98,7 @@ def main() -> None:
               USING (track_name_norm, artist_name_norm)
             JOIN listening.listening_track_keys l
               USING (track_name_norm, artist_name_norm)
-            JOIN project_tracks p ON c.spotify_track_id = p.track_id
+            JOIN spotify.spotify_tracks p ON c.spotify_track_id = p.track_id
             ORDER BY l.representative_track_name, l.representative_artist_name,
                      p.popularity DESC, c.spotify_track_id
         ) TO '{q(OUT / 'ambiguous_exact_v1_review.csv')}'
@@ -85,6 +107,7 @@ def main() -> None:
     )
 
     con.execute("DETACH listening")
+    con.execute("DETACH spotify")
     con.close()
     print(OUT / "accepted_exact_v1_review.csv")
     print(OUT / "ambiguous_exact_v1_review.csv")

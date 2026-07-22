@@ -158,8 +158,8 @@ def build_spotify() -> None:
         CREATE TABLE spotify_tracks AS
         WITH valid AS (
             SELECT s.*,
-                lower(trim(regexp_replace(track_name, '[^[:alnum:]]+', ' ', 'g'))) AS track_name_norm,
-                lower(trim(regexp_replace(artists, '[^[:alnum:];]+', ' ', 'g'))) AS artists_norm,
+                lower(trim(regexp_replace(track_name, '[^\\p{L}\\p{N}]+', ' ', 'g'))) AS track_name_norm,
+                lower(trim(regexp_replace(artists, '[^\\p{L}\\p{N};]+', ' ', 'g'))) AS artists_norm,
                 row_number() OVER (
                     PARTITION BY track_id
                     ORDER BY popularity DESC, track_genre, source_row_id
@@ -195,7 +195,7 @@ def build_spotify() -> None:
         SELECT DISTINCT
             t.track_id,
             trim(a.artist_name) AS artist_name,
-            lower(trim(regexp_replace(a.artist_name, '[^[:alnum:]]+', ' ', 'g'))) AS artist_name_norm,
+            lower(trim(regexp_replace(a.artist_name, '[^\\p{L}\\p{N}]+', ' ', 'g'))) AS artist_name_norm,
             a.ordinality::SMALLINT AS artist_order
         FROM spotify_tracks t,
         UNNEST(string_split(t.artists, ';')) WITH ORDINALITY AS a(artist_name, ordinality)
@@ -267,8 +267,8 @@ def build_listening() -> None:
                 rank::SMALLINT AS rank,
                 trim(track_name)::VARCHAR AS track_name,
                 trim(artist_name)::VARCHAR AS artist_name,
-                lower(trim(regexp_replace(track_name, '[^[:alnum:]]+', ' ', 'g'))) AS track_name_norm,
-                lower(trim(regexp_replace(artist_name, '[^[:alnum:]]+', ' ', 'g'))) AS artist_name_norm,
+                lower(trim(regexp_replace(track_name, '[^\\p{L}\\p{N}]+', ' ', 'g'))) AS track_name_norm,
+                lower(trim(regexp_replace(artist_name, '[^\\p{L}\\p{N}]+', ' ', 'g'))) AS artist_name_norm,
                 playcount::BIGINT AS playcount,
                 nullif(trim(mbid), '')::VARCHAR AS mbid
             FROM raw.user_top_tracks
