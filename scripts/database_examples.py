@@ -70,7 +70,10 @@ def integration_example() -> None:
             (SELECT count(*) FROM project_users) AS available_users,
             (SELECT count(*) FROM project_tracks) AS available_spotify_tracks,
             (SELECT count(*) FROM track_crosswalk) AS reviewed_crosswalk_rows,
-            (SELECT count(*) FROM interactions_integrated) AS integrated_interactions
+            (SELECT count(*) FROM interactions_integrated) AS integrated_interactions,
+            (SELECT count(*) FROM spotify_feature_clusters) AS feature_clusters,
+            (SELECT count(*) FROM listening_feature_crosswalk) AS feature_crosswalk_rows,
+            (SELECT count(*) FROM feature_interactions_integrated) AS feature_interactions
         """
     )
     print_rows("INTEGRATION EXAMPLE", [d[0] for d in result.description], result.fetchall())

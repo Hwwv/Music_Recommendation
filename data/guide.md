@@ -404,3 +404,32 @@ ambiguous samples from this baseline are reviewed.
 Normalization preserves Unicode letters and numbers using Unicode character
 properties. This prevents unrelated Chinese, Japanese, Korean, and other
 non-Latin titles from collapsing into an empty normalized key.
+
+## 13. Feature-cluster integration (`feature_cluster_v1`)
+
+Spotify catalog IDs are clustered by an exact fingerprint containing normalized
+title, normalized primary artist, duration, explicit flag, and the complete
+acoustic feature vector. Album, genre, popularity, and Spotify ID are excluded
+from the fingerprint because they describe catalog placement rather than audio
+content.
+
+Current results are:
+
+| Metric | Count |
+|---|---:|
+| Spotify track IDs | 89,740 |
+| Exact feature clusters | 83,851 |
+| Clusters containing multiple Spotify IDs | 2,752 |
+| Accepted listening keys after clustering | 37,343 |
+| Accepted keys that collapse multiple Spotify IDs | 1,555 |
+| Remaining ambiguous listening keys | 2,100 |
+| Cluster-level integrated interactions | 3,125,625 |
+| Users represented | 429,416 |
+| Feature clusters represented | 36,870 |
+| Users with at least 5 clusters | 260,920 |
+| Users with at least 10 clusters | 118,226 |
+| Users with at least 20 clusters | 17,765 |
+
+The model-ready item identity is now `feature_cluster_id`; the canonical Spotify
+ID is retained for metadata display and traceability. Exact-v1 tables remain in
+the database so the ID-level and feature-level decisions can be compared.
