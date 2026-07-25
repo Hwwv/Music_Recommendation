@@ -24,6 +24,24 @@ def ndcg_at_k(recommendations: Mapping[str, list[str]], truth: Mapping[str, str]
             pass
     return total / len(users)
 
+def ndcg_at_k_multiple(recommendations: Mapping[str, list[str]], truth: Mapping[str, list[str]], k: int) -> float:
+    users = [u for u in truth if u in recommendations]
+    if not users:
+        return 0.0
+    total = 0.0
+    for user in users:
+        recs = recommendations[user][:k]
+
+        dcg = 0.0
+        for rank, item in enumerate(recs):
+            if item in truth[user]:
+                dcg += 1.0 / math.log2(rank + 1)
+        idcg = sum(1.0/math.log2(rank + 1) for rank in range(min(k, len(truth[user]))))
+        if idcg > 0:
+            total += dcg / idcg
+
+    return total / len(users)
+
 
 def catalog_coverage(recommendations: Mapping[str, list[str]], catalog: set[str], k: int) -> float:
     exposed = {item for values in recommendations.values() for item in values[:k]}
