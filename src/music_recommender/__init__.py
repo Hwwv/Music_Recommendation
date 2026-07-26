@@ -9,6 +9,7 @@ __all__ = [
     "Interaction",
     "ItemKNN",
     "MatrixFactorization",
+    "MultiInterestContentRecommender",
     "PopularityRecommender",
     "leave_one_out_split",
     "normalize_text",

@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from music_recommender.data import Interaction, leave_one_out_split
 from music_recommender.metrics import catalog_coverage, intra_list_diversity, ndcg_at_k, recall_at_k
-from music_recommender.models import ContentRecommender, HybridRecommender, ItemKNN, MatrixFactorization, PopularityRecommender
+from music_recommender.models import ContentRecommender, HybridRecommender, ItemKNN, MatrixFactorization, MultiInterestContentRecommender, PopularityRecommender
 
 
 def main() -> None:
@@ -29,11 +29,13 @@ def main() -> None:
     knn = ItemKNN(neighbours=4).fit(train)
     mf = MatrixFactorization(factors=6, epochs=40).fit(train)
     content = ContentRecommender().fit(train, features)
+    multi_interest_content = MultiInterestContentRecommender().fit(train, features, k=3)
     models = {
         "popularity": popularity,
         "item_knn": knn,
         "matrix_factorization": mf,
         "content": content,
+        "multi_interest_content": multi_interest_content,
         "hybrid_knn_content": HybridRecommender(knn, content, cf_weight=0.6),
     }
     print(f"train_interactions={len(train)} evaluated_users={len(truth)}")
