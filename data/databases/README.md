@@ -90,6 +90,11 @@ only users and song-level interactions needed by the current project.
 - `track_match_decisions`: accepted, ambiguous, and unmatched decisions
 - `track_crosswalk`: accepted listening-to-Spotify mappings
 - `interactions_integrated`: matched, user-level interactions
+- `spotify_feature_clusters`: exact title/primary-artist/acoustic fingerprints
+- `spotify_feature_cluster_members`: Spotify IDs belonging to each fingerprint
+- `listening_feature_candidates`: listening keys mapped to distinct feature clusters
+- `listening_feature_decisions` and `listening_feature_crosswalk`: cluster-level decisions
+- `feature_interactions_integrated`: user interactions keyed by feature cluster
 - `dataset_splits`: versioned train/validation/test assignments
 - `integration_audit`: matching and integration metrics
 
@@ -162,7 +167,10 @@ SELECT
     (SELECT count(*) FROM project_users) AS available_users,
     (SELECT count(*) FROM project_tracks) AS available_spotify_tracks,
     (SELECT count(*) FROM track_crosswalk) AS reviewed_crosswalk_rows,
-    (SELECT count(*) FROM interactions_integrated) AS integrated_interactions;
+    (SELECT count(*) FROM interactions_integrated) AS integrated_interactions,
+    (SELECT count(*) FROM spotify_feature_clusters) AS feature_clusters,
+    (SELECT count(*) FROM listening_feature_crosswalk) AS feature_crosswalk_rows,
+    (SELECT count(*) FROM feature_interactions_integrated) AS feature_interactions;
 ```
 
 After running only `build_databases.py --only integration`, the final two values
@@ -172,8 +180,11 @@ crosswalk and integrated interactions.
 ```text
 available_users = 476451
 available_spotify_tracks = 89740
-reviewed_crosswalk_rows = 34976
-integrated_interactions = 2934320
+reviewed_crosswalk_rows = 35788
+integrated_interactions = 2937852
+feature_clusters = 83851
+feature_crosswalk_rows = 37343
+feature_interactions = 3125625
 ```
 
 After matching begins, an accepted crosswalk row must reference an existing
@@ -216,8 +227,21 @@ Populate the conservative exact-match integration after the databases exist:
 PYTHONPATH=.tools python3 scripts/match_tracks.py
 ```
 
+Then collapse feature-equivalent Spotify IDs and build cluster-level interactions:
+
+```bash
+PYTHONPATH=.tools python3 scripts/cluster_song_features.py
+```
+
+Export feature-level review samples:
+
+```bash
+PYTHONPATH=.tools python3 scripts/export_feature_cluster_review.py
+```
+
 Rebuilding `integration.duckdb` resets its matching-dependent tables. Run
 `match_tracks.py` again afterward to reproduce `exact_v1`.
+Then run `cluster_song_features.py` to reproduce `feature_cluster_v1`.
 
 Each build writes to a temporary database, verifies non-empty canonical tables,
 checkpoints the file, and only then replaces the previous generated database.

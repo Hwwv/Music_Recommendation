@@ -158,8 +158,8 @@ def build_spotify() -> None:
         CREATE TABLE spotify_tracks AS
         WITH valid AS (
             SELECT s.*,
-                lower(trim(regexp_replace(track_name, '[^[:alnum:]]+', ' ', 'g'))) AS track_name_norm,
-                lower(trim(regexp_replace(artists, '[^[:alnum:];]+', ' ', 'g'))) AS artists_norm,
+                lower(trim(regexp_replace(track_name, '[^\\p{L}\\p{N}]+', ' ', 'g'))) AS track_name_norm,
+                lower(trim(regexp_replace(artists, '[^\\p{L}\\p{N};]+', ' ', 'g'))) AS artists_norm,
                 row_number() OVER (
                     PARTITION BY track_id
                     ORDER BY popularity DESC, track_genre, source_row_id
@@ -195,7 +195,7 @@ def build_spotify() -> None:
         SELECT DISTINCT
             t.track_id,
             trim(a.artist_name) AS artist_name,
-            lower(trim(regexp_replace(a.artist_name, '[^[:alnum:]]+', ' ', 'g'))) AS artist_name_norm,
+            lower(trim(regexp_replace(a.artist_name, '[^\\p{L}\\p{N}]+', ' ', 'g'))) AS artist_name_norm,
             a.ordinality::SMALLINT AS artist_order
         FROM spotify_tracks t,
         UNNEST(string_split(t.artists, ';')) WITH ORDINALITY AS a(artist_name, ordinality)
@@ -267,8 +267,8 @@ def build_listening() -> None:
                 rank::SMALLINT AS rank,
                 trim(track_name)::VARCHAR AS track_name,
                 trim(artist_name)::VARCHAR AS artist_name,
-                lower(trim(regexp_replace(track_name, '[^[:alnum:]]+', ' ', 'g'))) AS track_name_norm,
-                lower(trim(regexp_replace(artist_name, '[^[:alnum:]]+', ' ', 'g'))) AS artist_name_norm,
+                lower(trim(regexp_replace(track_name, '[^\\p{L}\\p{N}]+', ' ', 'g'))) AS track_name_norm,
+                lower(trim(regexp_replace(artist_name, '[^\\p{L}\\p{N}]+', ' ', 'g'))) AS artist_name_norm,
                 playcount::BIGINT AS playcount,
                 nullif(trim(mbid), '')::VARCHAR AS mbid
             FROM raw.user_top_tracks
@@ -425,6 +425,112 @@ def build_integration() -> None:
             value DOUBLE NOT NULL,
             recorded_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
             PRIMARY KEY (run_id, metric)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE spotify_feature_clusters (
+            feature_cluster_id VARCHAR PRIMARY KEY,
+            canonical_track_id VARCHAR NOT NULL REFERENCES project_tracks(track_id),
+            track_name_norm VARCHAR NOT NULL,
+            primary_artist_norm VARCHAR NOT NULL,
+            member_count INTEGER NOT NULL CHECK (member_count > 0),
+            canonical_popularity SMALLINT,
+            duration_ms INTEGER,
+            explicit BOOLEAN,
+            danceability DOUBLE,
+            energy DOUBLE,
+            key SMALLINT,
+            loudness DOUBLE,
+            mode SMALLINT,
+            speechiness DOUBLE,
+            acousticness DOUBLE,
+            instrumentalness DOUBLE,
+            liveness DOUBLE,
+            valence DOUBLE,
+            tempo DOUBLE,
+            time_signature SMALLINT
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE spotify_feature_cluster_members (
+            feature_cluster_id VARCHAR NOT NULL REFERENCES spotify_feature_clusters(feature_cluster_id),
+            spotify_track_id VARCHAR NOT NULL UNIQUE REFERENCES project_tracks(track_id),
+            album_name VARCHAR,
+            popularity SMALLINT,
+            is_canonical BOOLEAN NOT NULL,
+            PRIMARY KEY (feature_cluster_id, spotify_track_id)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE listening_feature_candidates (
+            track_name_norm VARCHAR NOT NULL,
+            artist_name_norm VARCHAR NOT NULL,
+            feature_cluster_id VARCHAR NOT NULL REFERENCES spotify_feature_clusters(feature_cluster_id),
+            spotify_id_count INTEGER NOT NULL CHECK (spotify_id_count > 0),
+            match_tier VARCHAR NOT NULL,
+            PRIMARY KEY (track_name_norm, artist_name_norm, feature_cluster_id)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE listening_feature_decisions (
+            track_name_norm VARCHAR NOT NULL,
+            artist_name_norm VARCHAR NOT NULL,
+            feature_cluster_count INTEGER NOT NULL CHECK (feature_cluster_count >= 0),
+            spotify_candidate_count INTEGER NOT NULL CHECK (spotify_candidate_count >= 0),
+            decision VARCHAR NOT NULL CHECK (decision IN ('accepted', 'rejected', 'ambiguous')),
+            accepted_feature_cluster_id VARCHAR REFERENCES spotify_feature_clusters(feature_cluster_id),
+            decision_reason VARCHAR NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+            PRIMARY KEY (track_name_norm, artist_name_norm)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE listening_feature_crosswalk (
+            track_name_norm VARCHAR NOT NULL,
+            artist_name_norm VARCHAR NOT NULL,
+            feature_cluster_id VARCHAR NOT NULL REFERENCES spotify_feature_clusters(feature_cluster_id),
+            canonical_track_id VARCHAR NOT NULL REFERENCES project_tracks(track_id),
+            spotify_id_count INTEGER NOT NULL CHECK (spotify_id_count > 0),
+            match_tier VARCHAR NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT current_timestamp,
+            PRIMARY KEY (track_name_norm, artist_name_norm)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE feature_interactions_integrated (
+            user_id INTEGER NOT NULL REFERENCES project_users(user_id),
+            feature_cluster_id VARCHAR NOT NULL REFERENCES spotify_feature_clusters(feature_cluster_id),
+            canonical_track_id VARCHAR NOT NULL REFERENCES project_tracks(track_id),
+            playcount_raw BIGINT NOT NULL CHECK (playcount_raw > 0),
+            preference SMALLINT NOT NULL DEFAULT 1 CHECK (preference = 1),
+            confidence_log DOUBLE NOT NULL CHECK (confidence_log >= 1),
+            source_rank SMALLINT,
+            merged_listening_key_count INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (user_id, feature_cluster_id)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE feature_dataset_splits (
+            split_version VARCHAR NOT NULL,
+            seed INTEGER NOT NULL,
+            user_id INTEGER NOT NULL REFERENCES project_users(user_id),
+            feature_cluster_id VARCHAR NOT NULL REFERENCES spotify_feature_clusters(feature_cluster_id),
+            split VARCHAR NOT NULL CHECK (split IN ('train', 'validation', 'test')),
+            PRIMARY KEY (split_version, user_id, feature_cluster_id)
         )
         """
     )
