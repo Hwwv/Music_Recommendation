@@ -15,6 +15,9 @@ from typing import Iterable, Mapping
 
 from .data import Interaction
 
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+
 
 ScoreMap = dict[str, float]
 
@@ -149,6 +152,13 @@ class ContentRecommender(BaseRecommender):
     def fit(self, interactions: Iterable[Interaction], features: Mapping[str, list[float]]) -> "ContentRecommender":
         self.features = {item: list(vector) for item, vector in features.items()}
         self.catalog = set(self.features)
+        catalog_items = list(self.catalog)
+
+        self.scalar = StandardScaler()
+        raw_matrix = [self.features[item] for item in catalog_items]
+        std_matrix = self.scalar.fit_transform(raw_matrix)
+        self.std_features = {item: list(row) for item, row in zip(catalog_items, std_matrix)}
+
         self.history: dict[str, list[tuple[str, float]]] = defaultdict(list)
         self.seen = defaultdict(set)
         for row in interactions:
@@ -167,6 +177,62 @@ class ContentRecommender(BaseRecommender):
         total = sum(weight for _, weight in history)
         profile = [sum(self.features[item][j] * weight for item, weight in history) / total for j in range(width)]
         return {item: _cosine(profile, vector) for item, vector in self.features.items()}
+
+
+class MultiInterestContentRecommender(ContentRecommender):
+    def __init__(self, confidence_alpha: float = 1.0, global_weight: float = 0.1):
+        super().__init__(confidence_alpha)
+        self.global_weight = global_weight
+        self.cluster_to_track: dict[int, set[str]] = defaultdict(set)
+
+    def fit(self, interactions: Iterable[Interaction], features: Mapping[str, list[float]], k: int) -> "MultiInterestContentRecommender":
+        super().fit(interactions, features)
+        self.cluster_to_track = defaultdict(set)
+        self.cluster_number = k
+        if self.features:
+            self.feature_dim = len(next(iter(self.features.values())))
+        else:
+            self.feature_dim = 0
+        
+        catalog_items = list(self.catalog)
+        feature_vectors = [self.std_features[item] for item in catalog_items]
+
+        kmeans = KMeans(n_clusters=k, random_state=311).fit(feature_vectors)
+        self.cluster_labels = {item: kmeans.labels_[i] for i, item in enumerate(catalog_items)}
+        for item, cluster in self.cluster_labels.items():
+            self.cluster_to_track[cluster].add(item)
+
+        return self
+
+    def score(self, user_id: str) -> ScoreMap:
+        global_scores = super().score(user_id)
+        history = self.history.get(user_id, [])
+
+        if not history:
+            return global_scores
+        
+        user_clusters: dict[int, list[tuple[str, float]]] = defaultdict(list)
+        for item, weight in history:
+            if item in self.cluster_labels:
+                user_clusters[self.cluster_labels[item]].append((item, weight))
+
+        all_cluster_total_weight = 0.0
+        mean_vectors: dict[int, tuple[float, list[float]]] = {}
+        for cluster, items in user_clusters.items():
+            total_weight = sum(weight for _, weight in items)
+            all_cluster_total_weight += total_weight
+            mean_vector = [sum(self.std_features[item][j] * weight for item, weight in items) / total_weight for j in range(self.feature_dim)]
+            mean_vectors[cluster] = (total_weight, mean_vector)
+
+        scores = {item: score*self.global_weight for item, score in global_scores.items()}
+        for cluster, (weight, mean_vector) in mean_vectors.items():
+            weight_normalized = weight / all_cluster_total_weight if all_cluster_total_weight > 0 else 0.0
+            for item in self.cluster_to_track[cluster]:
+                local_score = _cosine(mean_vector, self.std_features[item]) * weight_normalized
+                global_score = global_scores.get(item, 0.0)
+                scores[item] = self.global_weight * global_score + (1 - self.global_weight) * local_score
+
+        return scores
 
 
 class HybridRecommender(BaseRecommender):
