@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from music_recommender.data import Interaction, leave_one_out_split, normalize_text
+from music_recommender.data import Interaction, leave_largest_out_split, normalize_text
 from music_recommender.metrics import ndcg_at_k, recall_at_k
 from music_recommender.models import ContentRecommender, HybridRecommender, ItemKNN, PopularityRecommender
 
@@ -22,7 +22,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(normalize_text("Beyoncé & JAY-Z"), "beyonce and jay z")
 
     def test_split_has_no_user_item_leakage(self):
-        train, test = leave_one_out_split(self.rows, seed=1)
+        train, test = leave_largest_out_split(self.rows, minimum_to_split=2, seed=1)
         train_pairs = {(row.user_id, row.item_id) for row in train}
         self.assertTrue(test)
         self.assertTrue(all((user, item) not in train_pairs for user, item in test.items()))

@@ -7,7 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from music_recommender.data import Interaction, leave_one_out_split
+from music_recommender.data import Interaction, leave_largest_out_split
 from music_recommender.metrics import catalog_coverage, intra_list_diversity, ndcg_at_k, recall_at_k
 from music_recommender.models import ContentRecommender, HybridRecommender, ItemKNN, MatrixFactorization, PopularityRecommender
 
@@ -24,7 +24,7 @@ def main() -> None:
         Interaction("u3", "rock_1", 11), Interaction("u3", "rock_2", 9), Interaction("u3", "dance_2", 3),
         Interaction("u4", "dance_1", 10), Interaction("u4", "dance_2", 12), Interaction("u4", "rock_2", 2),
     ]
-    train, truth = leave_one_out_split(interactions)
+    train, truth = leave_largest_out_split(interactions, minimum_to_split=3, seed=1)
     popularity = PopularityRecommender().fit(train)
     knn = ItemKNN(neighbours=4).fit(train)
     mf = MatrixFactorization(factors=6, epochs=40).fit(train)
