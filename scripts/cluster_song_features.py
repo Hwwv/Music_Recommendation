@@ -31,6 +31,7 @@ def main() -> None:
     con.execute(f"ATTACH '{sql_path(LISTENING)}' AS listening (READ_ONLY)")
 
     con.execute("DELETE FROM feature_dataset_splits")
+    con.execute("DELETE FROM feature_split_datasets")
     # Downstream model-ready graphs become stale whenever feature interactions
     # are rebuilt. Delete children before their version registry rows.
     con.execute("DELETE FROM feature_graph_interactions")

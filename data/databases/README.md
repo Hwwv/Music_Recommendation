@@ -249,6 +249,21 @@ associated counts and minimum final degrees are stored in `integration_audit`
 under the dataset version. Dataset versions are immutable: rerunning the same
 version and thresholds reuses it, while changed thresholds require a new name.
 
+Create the primary deterministic split. Users with at least 20 retained items
+receive approximately 10% validation and 10% test items; sparser users remain
+entirely in training:
+
+```bash
+PYTHONPATH=.tools python3 scripts/split_feature_graph.py \
+  --dataset-version feature_graph_u5_i2_v1 \
+  --split-version feature_split_u5_i2_eval20_seed42_v1 \
+  --seed 42 \
+  --min-evaluation-items 20
+```
+
+Split metadata is stored in `feature_split_datasets`, assignments in
+`feature_dataset_splits`, and leakage/coverage counts in `integration_audit`.
+
 Export feature-level review samples:
 
 ```bash

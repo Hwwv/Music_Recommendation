@@ -562,6 +562,19 @@ def build_integration() -> None:
         )
         """
     )
+    con.execute(
+        """
+        CREATE TABLE feature_split_datasets (
+            split_version VARCHAR PRIMARY KEY,
+            dataset_version VARCHAR NOT NULL REFERENCES feature_graph_datasets(dataset_version),
+            seed INTEGER NOT NULL,
+            min_evaluation_items INTEGER NOT NULL CHECK (min_evaluation_items >= 3),
+            validation_fraction DOUBLE NOT NULL CHECK (validation_fraction > 0),
+            test_fraction DOUBLE NOT NULL CHECK (test_fraction > 0),
+            created_at TIMESTAMP NOT NULL DEFAULT current_timestamp
+        )
+        """
+    )
     con.execute("DETACH spotify")
     con.execute("DETACH listening")
     con.execute("CHECKPOINT")
