@@ -264,6 +264,18 @@ PYTHONPATH=.tools python3 scripts/split_feature_graph.py \
 Split metadata is stored in `feature_split_datasets`, assignments in
 `feature_dataset_splits`, and leakage/coverage counts in `integration_audit`.
 
+Build the versioned train-fitted acoustic item feature matrix:
+
+```bash
+PYTHONPATH=.tools python3 scripts/build_item_feature_matrix.py \
+  --dataset-version feature_graph_u5_i2_v1 \
+  --split-version feature_split_u5_i2_eval20_seed42_v1 \
+  --feature-schema-version feature_matrix_audio_v1
+```
+
+The Parquet matrix and JSON metadata are written under `artifacts/features/`.
+The schema registry and artifact checksum are stored in `item_feature_schemas`.
+
 Export feature-level review samples:
 
 ```bash

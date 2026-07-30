@@ -575,6 +575,21 @@ def build_integration() -> None:
         )
         """
     )
+    con.execute(
+        """
+        CREATE TABLE item_feature_schemas (
+            feature_schema_version VARCHAR PRIMARY KEY,
+            dataset_version VARCHAR NOT NULL REFERENCES feature_graph_datasets(dataset_version),
+            split_version VARCHAR NOT NULL REFERENCES feature_split_datasets(split_version),
+            item_count INTEGER NOT NULL CHECK (item_count > 0),
+            feature_count INTEGER NOT NULL CHECK (feature_count > 0),
+            artifact_path VARCHAR NOT NULL,
+            artifact_sha256 VARCHAR NOT NULL,
+            metadata_json VARCHAR NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT current_timestamp
+        )
+        """
+    )
     con.execute("DETACH spotify")
     con.execute("DETACH listening")
     con.execute("CHECKPOINT")
