@@ -534,6 +534,34 @@ def build_integration() -> None:
         )
         """
     )
+    con.execute(
+        """
+        CREATE TABLE feature_graph_datasets (
+            dataset_version VARCHAR PRIMARY KEY,
+            min_user_items INTEGER NOT NULL CHECK (min_user_items > 0),
+            min_item_users INTEGER NOT NULL CHECK (min_item_users > 0),
+            source_run_id VARCHAR NOT NULL,
+            iteration_count INTEGER NOT NULL CHECK (iteration_count >= 0),
+            created_at TIMESTAMP NOT NULL DEFAULT current_timestamp
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE feature_graph_interactions (
+            dataset_version VARCHAR NOT NULL REFERENCES feature_graph_datasets(dataset_version),
+            user_id INTEGER NOT NULL REFERENCES project_users(user_id),
+            feature_cluster_id VARCHAR NOT NULL REFERENCES spotify_feature_clusters(feature_cluster_id),
+            canonical_track_id VARCHAR NOT NULL REFERENCES project_tracks(track_id),
+            playcount_raw BIGINT NOT NULL CHECK (playcount_raw > 0),
+            preference SMALLINT NOT NULL CHECK (preference = 1),
+            confidence_log DOUBLE NOT NULL CHECK (confidence_log >= 1),
+            source_rank SMALLINT,
+            merged_listening_key_count INTEGER NOT NULL CHECK (merged_listening_key_count > 0),
+            PRIMARY KEY (dataset_version, user_id, feature_cluster_id)
+        )
+        """
+    )
     con.execute("DETACH spotify")
     con.execute("DETACH listening")
     con.execute("CHECKPOINT")

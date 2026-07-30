@@ -233,6 +233,22 @@ Then collapse feature-equivalent Spotify IDs and build cluster-level interaction
 PYTHONPATH=.tools python3 scripts/cluster_song_features.py
 ```
 
+Build the versioned model-ready interaction graph by iteratively retaining users
+with at least 5 clusters and clusters heard by at least 2 users:
+
+```bash
+PYTHONPATH=.tools python3 scripts/filter_feature_graph.py \
+  --min-user-items 5 \
+  --min-item-users 2 \
+  --dataset-version feature_graph_u5_i2_v1
+```
+
+The pruning repeats until both degree constraints hold simultaneously. Results
+are stored in `feature_graph_datasets` and `feature_graph_interactions`; the
+associated counts and minimum final degrees are stored in `integration_audit`
+under the dataset version. Dataset versions are immutable: rerunning the same
+version and thresholds reuses it, while changed thresholds require a new name.
+
 Export feature-level review samples:
 
 ```bash
