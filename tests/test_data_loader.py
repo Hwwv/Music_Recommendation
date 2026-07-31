@@ -43,6 +43,11 @@ class DataLoaderTests(unittest.TestCase):
             )
         """)
         con.execute("""
+            CREATE TABLE spotify_feature_clusters (
+                feature_cluster_id VARCHAR, canonical_popularity SMALLINT
+            )
+        """)
+        con.execute("""
             COPY (
                 SELECT * FROM (VALUES
                     ('i3', 3.0, 30.0), ('i1', 1.0, 10.0),
@@ -53,6 +58,10 @@ class DataLoaderTests(unittest.TestCase):
         checksum = hashlib.sha256(self.artifact.read_bytes()).hexdigest()
         metadata = json.dumps({"feature_columns": ["f0", "f1"]})
         con.execute("INSERT INTO feature_split_datasets VALUES ('split_v1', 'graph_v1')")
+        con.executemany(
+            "INSERT INTO spotify_feature_clusters VALUES (?, ?)",
+            [("i1", 10), ("i2", 20), ("i3", 30), ("i4", 40)],
+        )
         con.execute(
             "INSERT INTO item_feature_schemas VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             ["features_v1", "graph_v1", "split_v1", 4, 2,
@@ -85,6 +94,7 @@ class DataLoaderTests(unittest.TestCase):
         self.assertEqual(data.item_features.shape, (4, 2))
         self.assertEqual(data.item_ids.tolist(), ["i1", "i2", "i3", "i4"])
         np.testing.assert_array_equal(data.item_features[:, 0], [1, 2, 3, 4])
+        np.testing.assert_array_equal(data.item_popularity, [10, 20, 30, 40])
         self.assertEqual(data.validation_truth, {0: {2}, 1: {0}})
         self.assertIsNone(data.test_truth)
         self.assertTrue(np.all(data.confidence(0).data == 1))

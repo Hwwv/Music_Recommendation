@@ -9,11 +9,11 @@ from collections.abc import Mapping, Sequence, Set
 
 def recommend_from_ranking(
     users: Sequence[int],
-    seen: Mapping[int, Set[str]],
-    ranking: Sequence[str],
+    seen: Mapping[int, Set[int]],
+    ranking: Sequence[int],
     k: int,
-) -> dict[int, list[str]]:
-    recommendations: dict[int, list[str]] = {}
+) -> dict[int, list[int]]:
+    recommendations: dict[int, list[int]] = {}
     for user in users:
         user_seen = seen.get(user, set())
         recommendations[user] = [item for item in ranking if item not in user_seen][:k]
@@ -22,12 +22,12 @@ def recommend_from_ranking(
 
 def recommend_history_popularity(
     users: Sequence[int],
-    seen: Mapping[int, Set[str]],
+    seen: Mapping[int, Set[int]],
     target_popularity: Mapping[int, int],
-    rankings_by_popularity: Mapping[int, Sequence[str]],
+    rankings_by_popularity: Mapping[int, Sequence[int]],
     k: int,
-) -> dict[int, list[str]]:
-    recommendations: dict[int, list[str]] = {}
+) -> dict[int, list[int]]:
+    recommendations: dict[int, list[int]] = {}
     for user in users:
         ranking = rankings_by_popularity[target_popularity[user]]
         user_seen = seen.get(user, set())
@@ -37,21 +37,23 @@ def recommend_history_popularity(
 
 def recommend_random(
     users: Sequence[int],
-    seen: Mapping[int, Set[str]],
-    catalog: Sequence[str],
+    seen: Mapping[int, Set[int]],
+    catalog: Sequence[int],
     k: int,
     seed: int,
-) -> dict[int, list[str]]:
+    stable_user_ids: Mapping[int, int] | None = None,
+) -> dict[int, list[int]]:
     """Sample unseen items without replacement using a stable per-user seed."""
-    recommendations: dict[int, list[str]] = {}
+    recommendations: dict[int, list[int]] = {}
     for user in users:
+        seed_user = stable_user_ids[user] if stable_user_ids is not None else user
         stable_seed = int.from_bytes(
-            hashlib.sha256(f"{seed}:{user}".encode()).digest()[:8], "big"
+            hashlib.sha256(f"{seed}:{seed_user}".encode()).digest()[:8], "big"
         )
         rng = random.Random(stable_seed)
         user_seen = seen.get(user, set())
-        selected: list[str] = []
-        selected_set: set[str] = set()
+        selected: list[int] = []
+        selected_set: set[int] = set()
         while len(selected) < k:
             item = catalog[rng.randrange(len(catalog))]
             if item not in user_seen and item not in selected_set:

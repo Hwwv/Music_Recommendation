@@ -20,6 +20,7 @@ class ExperimentData:
     train_binary: sparse.csr_matrix
     train_log_playcount: sparse.csr_matrix
     item_features: np.ndarray
+    item_popularity: np.ndarray
     user_ids: np.ndarray
     item_ids: np.ndarray
     user_to_index: dict[int, int]
@@ -147,6 +148,22 @@ def load_experiment_data(
     if len(np.unique(item_ids)) != len(item_ids) or not np.isfinite(item_features).all():
         con.close()
         raise ValueError("feature matrix contains duplicate IDs or non-finite values")
+    item_popularity = np.asarray(
+        con.execute(
+            f"""
+            SELECT coalesce(c.canonical_popularity, 0) AS popularity
+            FROM read_parquet({parquet}) f
+            JOIN spotify_feature_clusters c USING (feature_cluster_id)
+            ORDER BY f.feature_cluster_id
+            """
+        ).fetchnumpy()["popularity"],
+        dtype=np.int16,
+    )
+    if item_popularity.shape != (expected_items,) or np.any(
+        (item_popularity < 0) | (item_popularity > 100)
+    ):
+        con.close()
+        raise ValueError("aligned Spotify popularity is missing or outside 0-100")
 
     user_ids = np.asarray(
         con.execute(
@@ -242,6 +259,7 @@ def load_experiment_data(
         train_binary=train_binary,
         train_log_playcount=train_log_playcount,
         item_features=item_features,
+        item_popularity=item_popularity,
         user_ids=user_ids,
         item_ids=item_ids,
         user_to_index=user_to_index,

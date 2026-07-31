@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
 from pathlib import Path
 import sys
 import time
@@ -17,7 +16,7 @@ for path in (TOOLS, SRC):
     if path.exists():
         sys.path.insert(0, str(path))
 
-import duckdb
+import numpy as np
 
 from music_recommender.baselines import (
     recommend_from_ranking,
@@ -25,6 +24,7 @@ from music_recommender.baselines import (
     recommend_random,
 )
 from music_recommender.evaluation import assert_unseen_recommendations, evaluate_topk
+from music_recommender.data_loader import load_experiment_data
 
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
 OUTPUT_DIR = ROOT / "artifacts" / "baselines"
@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--split-version", default="feature_split_u5_i2_eval20_seed42_v1"
     )
+    parser.add_argument("--feature-schema-version", default="feature_matrix_audio_v1")
     parser.add_argument("--evaluation-split", choices=("validation", "test"), default="validation")
     parser.add_argument("--allow-test", action="store_true")
     parser.add_argument("--k", type=int, nargs="+", default=[10, 20])
@@ -50,112 +51,59 @@ def main() -> None:
     if any(k <= 0 for k in args.k):
         raise SystemExit("all --k values must be positive")
     max_k = max(args.k)
-    con = duckdb.connect(str(INTEGRATION), read_only=True)
-    split_exists = con.execute(
-        "SELECT count(*) FROM feature_split_datasets WHERE split_version = ?",
-        [args.split_version],
-    ).fetchone()[0]
-    if not split_exists:
-        raise SystemExit(f"unknown split version: {args.split_version}")
-
-    truth: dict[int, set[str]] = defaultdict(set)
-    for user, item in con.execute(
-        """
-        SELECT user_id, feature_cluster_id FROM feature_dataset_splits
-        WHERE split_version = ? AND split = ? ORDER BY user_id
-        """,
-        [args.split_version, args.evaluation_split],
-    ).fetchall():
-        truth[user].add(item)
+    data = load_experiment_data(
+        INTEGRATION,
+        args.split_version,
+        args.feature_schema_version,
+        allow_test=args.evaluation_split == "test" and args.allow_test,
+    )
+    truth = (
+        data.validation_truth if args.evaluation_split == "validation" else data.test_truth
+    )
+    if truth is None:
+        raise RuntimeError("requested evaluation truth was not loaded")
     users = sorted(truth)
     if not users:
         raise RuntimeError("evaluation split has no users")
 
-    seen: dict[int, set[str]] = defaultdict(set)
-    cursor = con.execute(
-        """
-        SELECT s.user_id, s.feature_cluster_id
-        FROM feature_dataset_splits s
-        JOIN (SELECT DISTINCT user_id FROM feature_dataset_splits
-              WHERE split_version = ? AND split = ?) e USING (user_id)
-        WHERE s.split_version = ? AND s.split = 'train'
-        ORDER BY s.user_id
-        """,
-        [args.split_version, args.evaluation_split, args.split_version],
-    )
-    while rows := cursor.fetchmany(100_000):
-        for user, item in rows:
-            seen[user].add(item)
-
-    item_rows = con.execute(
-        """
-        WITH train_stats AS (
-            SELECT
-                s.feature_cluster_id,
-                count(DISTINCT s.user_id) AS listener_count,
-                sum(i.confidence_log) AS confidence_sum
-            FROM feature_dataset_splits s
-            JOIN feature_graph_interactions i
-              ON s.user_id = i.user_id
-             AND s.feature_cluster_id = i.feature_cluster_id
-            JOIN feature_split_datasets d
-              ON s.split_version = d.split_version
-             AND i.dataset_version = d.dataset_version
-            WHERE s.split_version = ? AND s.split = 'train'
-            GROUP BY s.feature_cluster_id
-        )
-        SELECT
-            x.feature_cluster_id,
-            x.listener_count,
-            x.confidence_sum,
-            coalesce(c.canonical_popularity, 0)::INTEGER AS spotify_popularity
-        FROM train_stats x
-        JOIN spotify_feature_clusters c
-          ON x.feature_cluster_id = c.feature_cluster_id
-        ORDER BY x.feature_cluster_id
-        """,
-        [args.split_version],
-    ).fetchall()
-    catalog = [row[0] for row in item_rows]
+    seen = {
+        user: set(map(int, data.train_binary[user].indices))
+        for user in users
+    }
+    catalog = list(range(len(data.item_ids)))
     catalog_set = set(catalog)
+    listener_counts = np.asarray(data.train_binary.sum(axis=0)).ravel()
+    confidence = data.confidence(alpha=1.0)
+    confidence_sums = np.asarray(confidence.sum(axis=0)).ravel()
     global_ranking = [
-        row[0] for row in sorted(item_rows, key=lambda row: (-row[1], -row[2], row[0]))
+        item for item in sorted(
+            catalog,
+            key=lambda item: (
+                -listener_counts[item], -confidence_sums[item], data.item_ids[item]
+            ),
+        )
     ]
-
-    target_rows = con.execute(
-        """
-        SELECT
-            s.user_id,
-            round(sum(coalesce(c.canonical_popularity, 0) * i.confidence_log)
-                  / sum(i.confidence_log))::INTEGER AS target_popularity
-        FROM feature_dataset_splits s
-        JOIN feature_graph_interactions i
-          ON s.user_id = i.user_id AND s.feature_cluster_id = i.feature_cluster_id
-        JOIN feature_split_datasets d
-          ON s.split_version = d.split_version AND i.dataset_version = d.dataset_version
-        JOIN spotify_feature_clusters c
-          ON s.feature_cluster_id = c.feature_cluster_id
-        JOIN (SELECT DISTINCT user_id FROM feature_dataset_splits
-              WHERE split_version = ? AND split = ?) e
-          ON s.user_id = e.user_id
-        WHERE s.split_version = ? AND s.split = 'train'
-        GROUP BY s.user_id
-        """,
-        [args.split_version, args.evaluation_split, args.split_version],
-    ).fetchall()
-    targets = {user: max(0, min(100, target)) for user, target in target_rows}
+    targets: dict[int, int] = {}
+    for user in users:
+        row = confidence.getrow(user)
+        average = float(row.data @ data.item_popularity[row.indices]) / float(row.data.sum())
+        targets[user] = max(0, min(100, int(np.floor(average + 0.5))))
     used_targets = sorted(set(targets.values()))
     history_rankings = {
         target: [
-            row[0]
-            for row in sorted(
-                item_rows,
-                key=lambda row: (abs(row[3] - target), -row[1], -row[2], row[0]),
+            item
+            for item in sorted(
+                catalog,
+                key=lambda item: (
+                    abs(int(data.item_popularity[item]) - target),
+                    -listener_counts[item],
+                    -confidence_sums[item],
+                    data.item_ids[item],
+                ),
             )
         ]
         for target in used_targets
     }
-    con.close()
 
     generators = {
         "global_popularity": lambda: recommend_from_ranking(
@@ -164,11 +112,19 @@ def main() -> None:
         "user_history_popularity": lambda: recommend_history_popularity(
             users, seen, targets, history_rankings, max_k
         ),
-        "random": lambda: recommend_random(users, seen, catalog, max_k, args.seed),
+        "random": lambda: recommend_random(
+            users,
+            seen,
+            catalog,
+            max_k,
+            args.seed,
+            {user: int(data.user_ids[user]) for user in users},
+        ),
     }
     results: dict[str, object] = {
         "output_version": args.output_version,
         "split_version": args.split_version,
+        "feature_schema_version": args.feature_schema_version,
         "evaluation_split": args.evaluation_split,
         "seed": args.seed,
         "k_values": sorted(set(args.k)),
