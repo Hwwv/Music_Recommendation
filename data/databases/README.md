@@ -276,6 +276,20 @@ PYTHONPATH=.tools python3 scripts/build_item_feature_matrix.py \
 The Parquet matrix and JSON metadata are written under `artifacts/features/`.
 The schema registry and artifact checksum are stored in `item_feature_schemas`.
 
+Run the three primary validation baselines and shared top-k evaluation:
+
+```bash
+PYTHONPATH=.tools:src python3 scripts/run_baselines.py \
+  --split-version feature_split_u5_i2_eval20_seed42_v1 \
+  --evaluation-split validation \
+  --k 10 20 \
+  --seed 42 \
+  --output-version baselines_eval20_validation_v1
+```
+
+Test evaluation is locked by default and requires the explicit `--allow-test`
+flag after model selection is frozen.
+
 Export feature-level review samples:
 
 ```bash
