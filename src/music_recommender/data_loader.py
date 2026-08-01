@@ -108,22 +108,22 @@ class MusicDataLoader:
         return pd.read_parquet(full_path)
 
 
-    def load_feature_mappings(self) -> dict[str | int, list[float]]:
+    def load_feature_mappings(self) -> dict[str, list[float]]:
         """Load the feature matrix as a dictionary of item_id to feature vector."""
         feature_matrix = self.load_feature_matrix()
         return {row['feature_cluster_id']: [float(row[feature]) for feature in feature_matrix.columns if feature != 'feature_cluster_id'] for _, row in feature_matrix.iterrows()}
 
     
-    def load_split_truth(self, split: str) -> dict[str | int, set[str | int]]:
+    def load_split_truth(self, split: str) -> dict[int, set[str]]:
         """Load the specified split as a dictionary of user_id to list of item_ids."""
         split_df = self.load_split(split)
-        truths: dict[str | int, set[str | int]] = defaultdict(set)
+        truths: dict[int, set[str]] = defaultdict(set)
         for _, row in split_df.iterrows():
             truths[row['user_id']].add(row['feature_cluster_id'])
         return dict(truths)
 
 
-    def load_single_split_truth(self, split: str) -> dict[str | int, str | int]:
+    def load_single_split_truth(self, split: str) -> dict[int, str]:
         """Load the specified split as a dictionary of user_id to single item_id for one single item."""
         split_df = self.load_split(split)
 
@@ -132,5 +132,5 @@ class MusicDataLoader:
         if invalid_count > 0:
             raise ValueError(f"Found {invalid_count} users with more than one item in the {split} split. This function expects only one item per user.")
 
-        truths = dict(zip(split_df['user_id'], split_df['feature_cluster_id']))
+        truths = dict(zip(split_df['user_id'].astype(int), split_df['feature_cluster_id'].astype(str)))
         return truths
