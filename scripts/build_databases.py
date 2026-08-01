@@ -534,6 +534,62 @@ def build_integration() -> None:
         )
         """
     )
+    con.execute(
+        """
+        CREATE TABLE feature_graph_datasets (
+            dataset_version VARCHAR PRIMARY KEY,
+            min_user_items INTEGER NOT NULL CHECK (min_user_items > 0),
+            min_item_users INTEGER NOT NULL CHECK (min_item_users > 0),
+            source_run_id VARCHAR NOT NULL,
+            iteration_count INTEGER NOT NULL CHECK (iteration_count >= 0),
+            created_at TIMESTAMP NOT NULL DEFAULT current_timestamp
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE feature_graph_interactions (
+            dataset_version VARCHAR NOT NULL REFERENCES feature_graph_datasets(dataset_version),
+            user_id INTEGER NOT NULL REFERENCES project_users(user_id),
+            feature_cluster_id VARCHAR NOT NULL REFERENCES spotify_feature_clusters(feature_cluster_id),
+            canonical_track_id VARCHAR NOT NULL REFERENCES project_tracks(track_id),
+            playcount_raw BIGINT NOT NULL CHECK (playcount_raw > 0),
+            preference SMALLINT NOT NULL CHECK (preference = 1),
+            confidence_log DOUBLE NOT NULL CHECK (confidence_log >= 1),
+            source_rank SMALLINT,
+            merged_listening_key_count INTEGER NOT NULL CHECK (merged_listening_key_count > 0),
+            PRIMARY KEY (dataset_version, user_id, feature_cluster_id)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE feature_split_datasets (
+            split_version VARCHAR PRIMARY KEY,
+            dataset_version VARCHAR NOT NULL REFERENCES feature_graph_datasets(dataset_version),
+            seed INTEGER NOT NULL,
+            min_evaluation_items INTEGER NOT NULL CHECK (min_evaluation_items >= 3),
+            validation_fraction DOUBLE NOT NULL CHECK (validation_fraction > 0),
+            test_fraction DOUBLE NOT NULL CHECK (test_fraction > 0),
+            created_at TIMESTAMP NOT NULL DEFAULT current_timestamp
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE item_feature_schemas (
+            feature_schema_version VARCHAR PRIMARY KEY,
+            dataset_version VARCHAR NOT NULL REFERENCES feature_graph_datasets(dataset_version),
+            split_version VARCHAR NOT NULL REFERENCES feature_split_datasets(split_version),
+            item_count INTEGER NOT NULL CHECK (item_count > 0),
+            feature_count INTEGER NOT NULL CHECK (feature_count > 0),
+            artifact_path VARCHAR NOT NULL,
+            artifact_sha256 VARCHAR NOT NULL,
+            metadata_json VARCHAR NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT current_timestamp
+        )
+        """
+    )
     con.execute("DETACH spotify")
     con.execute("DETACH listening")
     con.execute("CHECKPOINT")

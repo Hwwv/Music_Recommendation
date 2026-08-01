@@ -30,7 +30,13 @@ def main() -> None:
     con.execute(f"ATTACH '{sql_path(SPOTIFY)}' AS spotify (READ_ONLY)")
     con.execute(f"ATTACH '{sql_path(LISTENING)}' AS listening (READ_ONLY)")
 
+    con.execute("DELETE FROM item_feature_schemas")
     con.execute("DELETE FROM feature_dataset_splits")
+    con.execute("DELETE FROM feature_split_datasets")
+    # Downstream model-ready graphs become stale whenever feature interactions
+    # are rebuilt. Delete children before their version registry rows.
+    con.execute("DELETE FROM feature_graph_interactions")
+    con.execute("DELETE FROM feature_graph_datasets")
     con.execute("DELETE FROM feature_interactions_integrated")
     con.execute("DELETE FROM listening_feature_crosswalk")
     con.execute("DELETE FROM listening_feature_decisions")

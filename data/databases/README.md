@@ -233,6 +233,63 @@ Then collapse feature-equivalent Spotify IDs and build cluster-level interaction
 PYTHONPATH=.tools python3 scripts/cluster_song_features.py
 ```
 
+Build the versioned model-ready interaction graph by iteratively retaining users
+with at least 5 clusters and clusters heard by at least 2 users:
+
+```bash
+PYTHONPATH=.tools python3 scripts/filter_feature_graph.py \
+  --min-user-items 5 \
+  --min-item-users 2 \
+  --dataset-version feature_graph_u5_i2_v1
+```
+
+The pruning repeats until both degree constraints hold simultaneously. Results
+are stored in `feature_graph_datasets` and `feature_graph_interactions`; the
+associated counts and minimum final degrees are stored in `integration_audit`
+under the dataset version. Dataset versions are immutable: rerunning the same
+version and thresholds reuses it, while changed thresholds require a new name.
+
+Create the primary deterministic split. Users with at least 20 retained items
+receive approximately 10% validation and 10% test items; sparser users remain
+entirely in training:
+
+```bash
+PYTHONPATH=.tools python3 scripts/split_feature_graph.py \
+  --dataset-version feature_graph_u5_i2_v1 \
+  --split-version feature_split_u5_i2_eval20_seed42_v1 \
+  --seed 42 \
+  --min-evaluation-items 20
+```
+
+Split metadata is stored in `feature_split_datasets`, assignments in
+`feature_dataset_splits`, and leakage/coverage counts in `integration_audit`.
+
+Build the versioned train-fitted acoustic item feature matrix:
+
+```bash
+PYTHONPATH=.tools python3 scripts/build_item_feature_matrix.py \
+  --dataset-version feature_graph_u5_i2_v1 \
+  --split-version feature_split_u5_i2_eval20_seed42_v1 \
+  --feature-schema-version feature_matrix_audio_v1
+```
+
+The Parquet matrix and JSON metadata are written under `artifacts/features/`.
+The schema registry and artifact checksum are stored in `item_feature_schemas`.
+
+Run the three primary validation baselines and shared top-k evaluation:
+
+```bash
+PYTHONPATH=.tools:src python3 scripts/run_baselines.py \
+  --split-version feature_split_u5_i2_eval20_seed42_v1 \
+  --evaluation-split validation \
+  --k 10 20 \
+  --seed 42 \
+  --output-version baselines_eval20_validation_v1
+```
+
+Test evaluation is locked by default and requires the explicit `--allow-test`
+flag after model selection is frozen.
+
 Export feature-level review samples:
 
 ```bash
