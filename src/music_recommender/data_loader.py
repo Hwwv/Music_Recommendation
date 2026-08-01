@@ -1,0 +1,136 @@
+from collections import defaultdict
+from .data import Interaction, Split
+from pathlib import Path
+import duckdb
+import pandas as pd
+
+
+ROOT = Path(__file__).resolve().parents[2]
+INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
+
+class MusicDataLoader:
+    def __init__(self, data_version: str = "feature_graph_u5_i2_v1", 
+                 split_version: str = "feature_split_u5_i2_eval20_seed42_v1", 
+                 feature_schema_version: str = "feature_matrix_audio_v1",
+                 data_db_path: Path = None):
+        self.data_version = data_version
+        self.split_version = split_version
+        self.feature_schema_version = feature_schema_version
+        self.data_db_path = data_db_path or INTEGRATION
+        self._con = None
+
+
+    def connect(self):
+        """Connect to the DuckDB database."""
+        if self._con is None:
+            self._con = duckdb.connect(str(self.data_db_path), read_only=True)
+            self._con.execute("PRAGMA threads=4")
+        return self._con
+
+    def close(self):
+        """Close the DuckDB connection."""
+        if self._con is not None:
+            self._con.close()
+            self._con = None
+
+
+    def load_filtered_feature_graph(self) -> pd.DataFrame:
+        """Load the filtered feature graph interactions as a pandas DataFrame."""
+        con = self.connect()
+        graph_df = con.execute(f"""
+            SELECT user_id, feature_cluster_id, confidence_log
+            FROM feature_graph_interactions
+            WHERE dataset_version = ?
+        """, [self.data_version]).fetchdf()
+        return graph_df
+
+
+    def load_split(self, split: str) -> pd.DataFrame:
+        """Load the specified split (train, validation, or test) as a pandas DataFrame."""
+        con = self.connect()
+        if split not in ["train", "validation", "test"]:
+            raise ValueError(f"Invalid split input {split}. Split must be 'train', 'validation', or 'test'.")
+        split_df = con.execute(f"""
+            SELECT f.user_id AS user_id, f.feature_cluster_id AS feature_cluster_id, t.playcount_raw AS playcount_raw
+            FROM feature_dataset_splits f
+            JOIN feature_graph_interactions t ON f.user_id = t.user_id AND f.feature_cluster_id = t.feature_cluster_id AND t.dataset_version = ?
+            WHERE f.split_version = ? AND f.split = ?
+        """, [self.data_version, self.split_version, split]).fetchdf()
+
+        return split_df
+
+
+    def load_all_splits(self) -> Split:
+        """Load all splits (train, validation, and test) and metadata as a Split object."""
+        con = self.connect()
+        train_df = self.load_split("train")
+        validation_df = self.load_split("validation")
+        test_df = self.load_split("test")
+        metadata = con.execute(f"""
+            SELECT dataset_version, seed, min_evaluation_items, validation_fraction, test_fraction, created_at
+            FROM feature_split_datasets
+            WHERE split_version = ?
+        """, [self.split_version]).fetchone()
+        metadata_dict = {
+            "dataset_version": metadata[0],
+            "seed": metadata[1],
+            "min_evaluation_items": metadata[2],
+            "validation_fraction": metadata[3],
+            "test_fraction": metadata[4],
+            "created_at": metadata[5]
+        }
+        return Split(train=train_df, validation=validation_df, test=test_df, metadata=metadata_dict)
+
+    
+    def load_split_interactions(self, split: str) -> list[Interaction]:
+        """Load the specified split as a list of Interaction objects."""
+        result = []
+        split_df = self.load_split(split)
+        for _, row in split_df.iterrows():
+            user = row['user_id']
+            item = row['feature_cluster_id']
+            play_count = float(row['playcount_raw'])
+            result.append(Interaction(user_id=user, item_id=item, play_count=play_count))
+        return result
+
+
+    def load_feature_matrix(self) -> pd.DataFrame:
+        """Load the feature matrix as a pandas DataFrame."""
+        con = self.connect()
+        path = con.execute(f"""
+            SELECT artifact_path
+            FROM item_feature_schemas
+            WHERE feature_schema_version = ? AND dataset_version = ? AND split_version = ?
+        """, [self.feature_schema_version, self.data_version, self.split_version]).fetchone()[0]
+        if not path:
+            raise ValueError(f"No feature matrix found for schema version {self.feature_schema_version}, dataset version {self.data_version}, and split version {self.split_version}.")
+        full_path = ROOT / path
+        return pd.read_parquet(full_path)
+
+
+    def load_feature_mappings(self) -> dict[str | int, list[float]]:
+        """Load the feature matrix as a dictionary of item_id to feature vector."""
+        feature_matrix = self.load_feature_matrix()
+        return {row['feature_cluster_id']: [float(row[feature]) for feature in feature_matrix.columns if feature != 'feature_cluster_id'] for _, row in feature_matrix.iterrows()}
+
+    
+    def load_split_truth(self, split: str) -> dict[str | int, set[str | int]]:
+        """Load the specified split as a dictionary of user_id to list of item_ids."""
+        split_df = self.load_split(split)
+        truths: dict[str | int, set[str | int]] = defaultdict(set)
+        for _, row in split_df.iterrows():
+            truths[row['user_id']].add(row['feature_cluster_id'])
+        return dict(truths)
+
+
+    def load_single_split_truth(self, split: str) -> dict[str | int, str | int]:
+        """Load the specified split as a dictionary of user_id to single item_id for one single item."""
+        split_df = self.load_split(split)
+
+        item_counts = split_df.groupby('user_id')['feature_cluster_id'].count()
+        invalid_count = item_counts[item_counts != 1].count()
+        if invalid_count > 0:
+            raise ValueError(f"Found {invalid_count} users with more than one item in the {split} split. This function expects only one item per user.")
+
+        truths = dict(zip(split_df['user_id'], split_df['feature_cluster_id']))
+        return truths

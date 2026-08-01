@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict
+import pandas as pd
 import random
 import re
 import unicodedata
@@ -11,9 +14,17 @@ import unicodedata
 
 @dataclass(frozen=True)
 class Interaction:
-    user_id: str
-    item_id: str
+    user_id: str | int
+    item_id: str | int
     play_count: float = 1.0
+
+
+@dataclass(frozen=True)
+class Split:
+    train: pd.DataFrame
+    validation: pd.DataFrame
+    test: pd.DataFrame
+    metadata: Dict
 
 
 def normalize_text(value: str) -> str:
