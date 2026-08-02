@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict
-import pandas as pd
 import random
 import re
 import unicodedata
@@ -14,17 +11,9 @@ import unicodedata
 
 @dataclass(frozen=True)
 class Interaction:
-    user_id: str | int
-    item_id: str | int
+    user_id: int
+    item_id: str
     play_count: float = 1.0
-
-
-@dataclass(frozen=True)
-class Split:
-    train: pd.DataFrame
-    validation: pd.DataFrame
-    test: pd.DataFrame
-    metadata: Dict
 
 
 def normalize_text(value: str) -> str:
@@ -46,13 +35,13 @@ def leave_largest_out_split(
     Users with fewer than [minimum_to_split] distinct items remain entirely in training because
     withholding their largest observation would cause significant bias in evaluation.
     """
-    by_user: dict[str, list[Interaction]] = defaultdict(list)
+    by_user: dict[int, list[Interaction]] = defaultdict(list)
     for row in interactions:
         by_user[row.user_id].append(row)
 
     rng = random.Random(seed)
     train: list[Interaction] = []
-    test: dict[str, str] = {}
+    test: dict[int, str] = {}
     for user_id in sorted(by_user):
         rows = by_user[user_id]
         unique_items = sorted({row.item_id for row in rows})
@@ -75,13 +64,13 @@ def interaction_split(
     """
     assert type in ['frac', 'n'], "type must be either 'frac' or 'n'"
 
-    by_user: dict[str, list[Interaction]] = defaultdict(list)
+    by_user: dict[int, list[Interaction]] = defaultdict(list)
     for row in interactions:
         by_user[row.user_id].append(row)
 
     rng = random.Random(seed)
     train: list[Interaction] = []
-    test: dict[str, list[str]] = {}
+    test: dict[int, list[str]] = {}
     for user_id in sorted(by_user):
         rows = by_user[user_id]
         unique_items = sorted({row.item_id for row in rows})
