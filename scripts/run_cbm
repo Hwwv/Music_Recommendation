@@ -1,0 +1,13 @@
+"""Run the Content and Multi-Interest Recommenders"""
+from __future__ import annotations
+
+import argparse
+import json
+
+from pathlib import Path
+import sys
+import time
+
+from src.music_recommender.data import Interaction
+from src.music_recommender.data_loader import MusicDataLoader
+from src.music_recommender.models import ContentRecommender, MultiInterestContentRecommender
