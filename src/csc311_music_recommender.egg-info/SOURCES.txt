@@ -1,0 +1,17 @@
+README.md
+pyproject.toml
+src/csc311_music_recommender.egg-info/PKG-INFO
+src/csc311_music_recommender.egg-info/SOURCES.txt
+src/csc311_music_recommender.egg-info/dependency_links.txt
+src/csc311_music_recommender.egg-info/requires.txt
+src/csc311_music_recommender.egg-info/top_level.txt
+src/music_recommender/__init__.py
+src/music_recommender/baselines.py
+src/music_recommender/data.py
+src/music_recommender/data_loader.py
+src/music_recommender/evaluation.py
+src/music_recommender/metrics.py
+src/music_recommender/models.py
+tests/test_data_loader.py
+tests/test_dataloader.py
+tests/test_pipeline.py
