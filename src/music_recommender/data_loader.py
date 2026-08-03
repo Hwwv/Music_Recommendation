@@ -1,271 +1,223 @@
-"""Versioned, leakage-safe loading for full recommendation experiments."""
-
-from __future__ import annotations
-
+from collections import defaultdict
 from dataclasses import dataclass
-import hashlib
-import json
+from .data import Interaction
 from pathlib import Path
-
+from typing import Dict
 import duckdb
-import numpy as np
-from scipy import sparse
+import pandas as pd
+
+
+ROOT = Path(__file__).resolve().parents[2]
+INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
 
 
 @dataclass(frozen=True)
-class ExperimentData:
-    dataset_version: str
-    split_version: str
-    feature_schema_version: str
-    train_binary: sparse.csr_matrix
-    train_log_playcount: sparse.csr_matrix
-    item_features: np.ndarray
-    item_popularity: np.ndarray
-    user_ids: np.ndarray
-    item_ids: np.ndarray
-    user_to_index: dict[int, int]
-    item_to_index: dict[str, int]
-    feature_names: tuple[str, ...]
-    validation_truth: dict[int, set[int]]
-    test_truth: dict[int, set[int]] | None
-    evaluation_users: np.ndarray
-
-    def confidence(self, alpha: float) -> sparse.csr_matrix:
-        """Return 1 + alpha * log(1 + playcount) on observed train entries."""
-        if alpha < 0:
-            raise ValueError("alpha must be non-negative")
-        matrix = self.train_log_playcount.copy()
-        matrix.data = (1.0 + alpha * matrix.data).astype(np.float32, copy=False)
-        return matrix
+class Split:
+    train: pd.DataFrame
+    validation: pd.DataFrame
+    test: pd.DataFrame
+    metadata: Dict
 
 
-def _sql_string(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
+class MusicDataLoader:
+    def __init__(self, data_version: str = "feature_graph_u5_i2_v1",
+                 split_version: str = "feature_split_u5_i2_eval20_seed42_v1",
+                 feature_schema_version: str = "feature_matrix_audio_v1",
+                 data_db_path: Path = None,
+                 allow_test: bool = False):
+        self.data_version = data_version
+        self.split_version = split_version
+        self.feature_schema_version = feature_schema_version
+        self.data_db_path = data_db_path or INTEGRATION
+        self.allow_test = allow_test
+        self._con = None
+        self._validate_versions()
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    def connect(self):
+        """Connect to the DuckDB database."""
+        if self._con is None:
+            self._con = duckdb.connect(str(self.data_db_path), read_only=True)
+            self._con.execute("PRAGMA threads=4")
+        return self._con
 
 
-def _truth_from_arrays(users: np.ndarray, items: np.ndarray) -> dict[int, set[int]]:
-    truth: dict[int, set[int]] = {}
-    for user, item in zip(users, items, strict=True):
-        truth.setdefault(int(user), set()).add(int(item))
-    return truth
+    def close(self):
+        """Close the DuckDB connection."""
+        if self._con is not None:
+            self._con.close()
+            self._con = None
 
 
-def load_experiment_data(
-    database_path: str | Path,
-    split_version: str,
-    feature_schema_version: str,
-    *,
-    artifact_root: str | Path | None = None,
-    allow_test: bool = False,
-    verify_checksum: bool = True,
-) -> ExperimentData:
-    """Load aligned sparse interactions, item features, and held-out truth.
+    def execute_query(self, query: str, params: list = None, fetch_type: str = "df"):
+        """Execute a query against the DuckDB database, return type specified by fetch_type (must be in ['df', 'one', 'all'])."""
+        con = duckdb.connect(str(self.data_db_path), read_only=True)
+        con.execute("PRAGMA threads=4")
+        try:
+            if params is None:
+                result = con.execute(query)
+            else:
+                result = con.execute(query, params)
+            if fetch_type == "df":
+                return result.fetchdf()
+            elif fetch_type == "one":
+                return result.fetchone()
+            elif fetch_type == "all":
+                return result.fetchall()
+            else:
+                raise ValueError(f"Invalid fetch_type {fetch_type}. Must be one of ['df', 'one', 'all'].")
+        finally:
+            con.close()
 
-    User and item indices are deterministic: original user IDs and feature
-    cluster IDs are sorted ascending. Test truth is omitted unless explicitly
-    unlocked with ``allow_test=True``.
-    """
-    database_path = Path(database_path).resolve()
-    artifact_root = (
-        Path(artifact_root).resolve() if artifact_root is not None else database_path.parents[2]
-    )
-    con = duckdb.connect(str(database_path), read_only=True)
 
-    split_row = con.execute(
-        """
-        SELECT dataset_version
-        FROM feature_split_datasets
-        WHERE split_version = ?
-        """,
-        [split_version],
-    ).fetchone()
-    if split_row is None:
-        con.close()
-        raise ValueError(f"unknown split version: {split_version}")
-    dataset_version = str(split_row[0])
+    def _validate_versions(self):
+        """Validate the consistency of the data, split, and feature schema versions."""
+        data_version = self.execute_query(f"""
+            SELECT dataset_version
+            FROM feature_split_datasets
+            WHERE split_version = ?
+        """, [self.split_version], fetch_type="one")
 
-    schema_row = con.execute(
-        """
-        SELECT dataset_version, split_version, item_count, feature_count,
-               artifact_path, artifact_sha256, metadata_json
-        FROM item_feature_schemas
-        WHERE feature_schema_version = ?
-        """,
-        [feature_schema_version],
-    ).fetchone()
-    if schema_row is None:
-        con.close()
-        raise ValueError(f"unknown feature schema version: {feature_schema_version}")
-    if schema_row[0] != dataset_version or schema_row[1] != split_version:
-        con.close()
-        raise ValueError(
-            f"feature schema {feature_schema_version!r} is registered for "
-            f"{schema_row[0:2]}, not {(dataset_version, split_version)}"
-        )
+        if not data_version:
+            raise ValueError(f"Data version with split version {self.split_version} not found in the database.")
 
-    expected_items, expected_features = int(schema_row[2]), int(schema_row[3])
-    artifact_path = Path(schema_row[4])
-    if not artifact_path.is_absolute():
-        artifact_path = artifact_root / artifact_path
-    if not artifact_path.exists():
-        con.close()
-        raise FileNotFoundError(f"feature artifact not found: {artifact_path}")
-    if verify_checksum and _sha256(artifact_path) != schema_row[5]:
-        con.close()
-        raise ValueError(f"feature artifact checksum mismatch: {artifact_path}")
-    metadata = json.loads(schema_row[6])
-    feature_names = tuple(metadata["feature_columns"])
-    if len(feature_names) != expected_features:
-        con.close()
-        raise ValueError("registered feature count does not match metadata")
+        split_to_data = data_version[0]
+        if split_to_data != self.data_version:
+            raise ValueError(f"Split version {self.split_version} is associated with data version {split_to_data}, not {self.data_version}.")
 
-    parquet = _sql_string(str(artifact_path))
-    item_result = con.execute(
-        f"""
-        SELECT feature_cluster_id, {', '.join(feature_names)}
-        FROM read_parquet({parquet})
-        ORDER BY feature_cluster_id
-        """
-    ).fetchnumpy()
-    item_ids = np.asarray(item_result.pop("feature_cluster_id"), dtype=str)
-    item_features = np.column_stack(
-        [np.asarray(item_result[name], dtype=np.float32) for name in feature_names]
-    )
-    if item_features.shape != (expected_items, expected_features):
-        con.close()
-        raise ValueError(
-            f"feature matrix shape {item_features.shape} does not match "
-            f"registered shape {(expected_items, expected_features)}"
-        )
-    if len(np.unique(item_ids)) != len(item_ids) or not np.isfinite(item_features).all():
-        con.close()
-        raise ValueError("feature matrix contains duplicate IDs or non-finite values")
-    item_popularity = np.asarray(
-        con.execute(
-            f"""
-            SELECT coalesce(c.canonical_popularity, 0) AS popularity
-            FROM read_parquet({parquet}) f
-            JOIN spotify_feature_clusters c USING (feature_cluster_id)
-            ORDER BY f.feature_cluster_id
-            """
-        ).fetchnumpy()["popularity"],
-        dtype=np.int16,
-    )
-    if item_popularity.shape != (expected_items,) or np.any(
-        (item_popularity < 0) | (item_popularity > 100)
-    ):
-        con.close()
-        raise ValueError("aligned Spotify popularity is missing or outside 0-100")
+        feature_results = self.execute_query(f"""
+            SELECT dataset_version, split_version
+            FROM item_feature_schemas
+            WHERE feature_schema_version = ?
+        """, [self.feature_schema_version], fetch_type="one")
+        if not feature_results:
+            raise ValueError(f"Data and split versions with feature schema version {self.feature_schema_version} not found in the database.")
 
-    user_ids = np.asarray(
-        con.execute(
-            """
-            SELECT DISTINCT user_id FROM feature_dataset_splits
-            WHERE split_version = ? AND split = 'train'
-            ORDER BY user_id
-            """,
-            [split_version],
-        ).fetchnumpy()["user_id"],
-        dtype=np.int64,
-    )
-    user_to_index = {int(user): index for index, user in enumerate(user_ids)}
-    item_to_index = {str(item): index for index, item in enumerate(item_ids)}
+        feature_to_data, feature_to_split = feature_results
+        if feature_to_data != self.data_version:
+            raise ValueError(f"Feature schema version {self.feature_schema_version} is associated with data version {feature_to_data}, not {self.data_version}.")
+        if feature_to_split != self.split_version:
+            raise ValueError(f"Feature schema version {self.feature_schema_version} is associated with split version {feature_to_split}, not {self.split_version}.")
 
-    index_ctes = f"""
-        WITH user_map AS (
-            SELECT user_id, row_number() OVER (ORDER BY user_id) - 1 AS user_index
-            FROM (SELECT DISTINCT user_id FROM feature_dataset_splits
-                  WHERE split_version = {_sql_string(split_version)} AND split = 'train')
-        ), item_map AS (
-            SELECT feature_cluster_id,
-                   row_number() OVER (ORDER BY feature_cluster_id) - 1 AS item_index
-            FROM read_parquet({parquet})
-        )
-    """
-    train = con.execute(
-        index_ctes
-        + f"""
-        SELECT u.user_index, m.item_index, g.playcount_raw
-        FROM feature_dataset_splits s
-        JOIN feature_split_datasets d USING (split_version)
-        JOIN feature_graph_interactions g
-          ON g.dataset_version = d.dataset_version
-         AND g.user_id = s.user_id
-         AND g.feature_cluster_id = s.feature_cluster_id
-        JOIN user_map u ON s.user_id = u.user_id
-        JOIN item_map m ON s.feature_cluster_id = m.feature_cluster_id
-        WHERE s.split_version = {_sql_string(split_version)} AND s.split = 'train'
-        """
-    ).fetchnumpy()
-    rows = np.asarray(train["user_index"], dtype=np.int32)
-    columns = np.asarray(train["item_index"], dtype=np.int32)
-    playcounts = np.asarray(train["playcount_raw"], dtype=np.float32)
-    shape = (len(user_ids), len(item_ids))
-    train_binary = sparse.csr_matrix(
-        (np.ones(len(rows), dtype=np.float32), (rows, columns)), shape=shape
-    )
-    train_log_playcount = sparse.csr_matrix(
-        (np.log1p(playcounts).astype(np.float32), (rows, columns)), shape=shape
-    )
-    train_binary.sort_indices()
-    train_log_playcount.sort_indices()
-    if train_binary.nnz != len(rows) or train_binary.nnz != train_log_playcount.nnz:
-        con.close()
-        raise ValueError("duplicate or misaligned train interactions")
+        print(f"Data version {self.data_version}, split version {self.split_version}, and feature schema version {self.feature_schema_version} are valid and consistent.")
 
-    def load_truth(split: str) -> dict[int, set[int]]:
-        arrays = con.execute(
-            index_ctes
-            + f"""
-            SELECT u.user_index, m.item_index
-            FROM feature_dataset_splits s
-            JOIN user_map u ON s.user_id = u.user_id
-            JOIN item_map m ON s.feature_cluster_id = m.feature_cluster_id
-            WHERE s.split_version = {_sql_string(split_version)}
-              AND s.split = {_sql_string(split)}
-            ORDER BY u.user_index, m.item_index
-            """
-        ).fetchnumpy()
-        return _truth_from_arrays(arrays["user_index"], arrays["item_index"])
 
-    validation_truth = load_truth("validation")
-    test_truth = load_truth("test") if allow_test else None
-    evaluation_users = np.asarray(sorted(validation_truth), dtype=np.int32)
-    con.close()
 
-    # A user's held-out items must never appear in that user's training row.
-    for user, held_out in validation_truth.items():
-        start, end = train_binary.indptr[user : user + 2]
-        if held_out.intersection(map(int, train_binary.indices[start:end])):
-            raise ValueError(f"validation leakage for user index {user}")
-    if test_truth is not None:
-        for user, held_out in test_truth.items():
-            start, end = train_binary.indptr[user : user + 2]
-            if held_out.intersection(map(int, train_binary.indices[start:end])):
-                raise ValueError(f"test leakage for user index {user}")
+    def load_filtered_feature_graph(self) -> pd.DataFrame:
+        """Load the filtered feature graph interactions as a pandas DataFrame."""
+        graph_df = self.execute_query(f"""
+            SELECT user_id, feature_cluster_id, confidence_log
+            FROM feature_graph_interactions
+            WHERE dataset_version = ?
+        """, [self.data_version], fetch_type="df")
+        if graph_df.empty:
+            raise ValueError(f"No feature graph interactions found for dataset version {self.data_version}.")
 
-    return ExperimentData(
-        dataset_version=dataset_version,
-        split_version=split_version,
-        feature_schema_version=feature_schema_version,
-        train_binary=train_binary,
-        train_log_playcount=train_log_playcount,
-        item_features=item_features,
-        item_popularity=item_popularity,
-        user_ids=user_ids,
-        item_ids=item_ids,
-        user_to_index=user_to_index,
-        item_to_index=item_to_index,
-        feature_names=feature_names,
-        validation_truth=validation_truth,
-        test_truth=test_truth,
-        evaluation_users=evaluation_users,
-    )
+        null_cols = graph_df.columns[graph_df.isnull().any()].tolist()
+        if null_cols:
+            raise ValueError(f"Found null values in columns {null_cols}.")
+
+        graph_df['user_id'] = graph_df['user_id'].astype(int)
+        graph_df['feature_cluster_id'] = graph_df['feature_cluster_id'].astype(str)
+        graph_df['confidence_log'] = graph_df['confidence_log'].astype(float)
+        return graph_df.sort_values(by=['user_id', 'feature_cluster_id']).reset_index(drop=True)
+
+
+    def load_split(self, split: str) -> pd.DataFrame:
+        """Load the specified split (train, validation, or test) as a pandas DataFrame."""
+        if not self.allow_test and split == "test":
+            raise ValueError("Loading the test split is not allowed. Set allow_test=True to enable this.")
+
+        if split not in ["train", "validation", "test"]:
+            raise ValueError(f"Invalid split input {split}. Split must be 'train', 'validation', or 'test'.")
+
+        split_df = self.execute_query(f"""
+            SELECT f.user_id AS user_id, f.feature_cluster_id AS feature_cluster_id, t.playcount_raw AS playcount_raw
+            FROM feature_dataset_splits f
+            JOIN feature_graph_interactions t ON f.user_id = t.user_id AND f.feature_cluster_id = t.feature_cluster_id AND t.dataset_version = ?
+            WHERE f.split_version = ? AND f.split = ?
+        """, [self.data_version, self.split_version, split], fetch_type="df")
+
+        return split_df
+
+
+    def load_all_splits(self) -> Split:
+        """Load all splits (train, validation, and test) and metadata as a Split object."""
+        if not self.allow_test:
+            raise ValueError("Loading all splits is not allowed. Set allow_test=True to enable this.")
+        train_df = self.load_split("train")
+        validation_df = self.load_split("validation")
+        test_df = self.load_split("test")
+        metadata = self.execute_query(f"""
+            SELECT dataset_version, seed, min_evaluation_items, validation_fraction, test_fraction, created_at
+            FROM feature_split_datasets
+            WHERE split_version = ?
+        """, [self.split_version], fetch_type="one")
+        metadata_dict = {
+            "dataset_version": metadata[0],
+            "seed": metadata[1],
+            "min_evaluation_items": metadata[2],
+            "validation_fraction": metadata[3],
+            "test_fraction": metadata[4],
+            "created_at": metadata[5]
+        }
+        return Split(train=train_df, validation=validation_df, test=test_df, metadata=metadata_dict)
+
+
+    def load_split_interactions(self, split: str) -> list[Interaction]:
+        """Load the specified split as a list of Interaction objects."""
+        result = []
+        split_df = self.load_split(split)
+        for _, row in split_df.iterrows():
+            user = row['user_id']
+            item = row['feature_cluster_id']
+            play_count = float(row['playcount_raw'])
+            result.append(Interaction(user_id=user, item_id=item, play_count=play_count))
+        return result
+
+
+    def load_feature_matrix(self) -> pd.DataFrame:
+        """Load the feature matrix as a pandas DataFrame."""
+        result = self.execute_query(f"""
+            SELECT artifact_path
+            FROM item_feature_schemas
+            WHERE feature_schema_version = ? AND dataset_version = ? AND split_version = ?
+        """, [self.feature_schema_version, self.data_version, self.split_version], fetch_type="one")
+        if not result or not result[0]:
+            raise ValueError(f"No feature matrix found for schema version {self.feature_schema_version}, dataset version {self.data_version}, and split version {self.split_version}.")
+        path = result[0]
+        full_path = ROOT / path
+        if not full_path.exists():
+            raise FileNotFoundError(f"Feature matrix file not found at {full_path}.")
+        df = pd.read_parquet(full_path)
+        if df.empty:
+            raise ValueError(f"Feature matrix at {full_path} is empty.")
+        return df
+
+
+    def load_feature_mappings(self) -> dict[str, list[float]]:
+        """Load the feature matrix as a dictionary of item_id to feature vector."""
+        feature_matrix = self.load_feature_matrix()
+        return {row['feature_cluster_id']: [float(row[feature]) for feature in feature_matrix.columns if feature != 'feature_cluster_id'] for _, row in feature_matrix.iterrows()}
+
+
+    def load_split_truth(self, split: str) -> dict[int, set[str]]:
+        """Load the specified split as a dictionary of user_id to list of item_ids."""
+        split_df = self.load_split(split)
+        truths: dict[int, set[str]] = defaultdict(set)
+        for _, row in split_df.iterrows():
+            truths[row['user_id']].add(row['feature_cluster_id'])
+        return dict(truths)
+
+
+    def load_single_split_truth(self, split: str) -> dict[int, str]:
+        """Load the specified split as a dictionary of user_id to single item_id for one single item."""
+        split_df = self.load_split(split)
+
+        item_counts = split_df.groupby('user_id')['feature_cluster_id'].count()
+        invalid_count = item_counts[item_counts != 1].count()
+        if invalid_count > 0:
+            raise ValueError(f"Found {invalid_count} users with more than one item in the {split} split. This function expects only one item per user.")
+
+        truths = dict(zip(split_df['user_id'].astype(int), split_df['feature_cluster_id'].astype(str)))
+        return truths
