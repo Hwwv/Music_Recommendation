@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
 from pathlib import Path
 import sys
 import time
@@ -17,7 +16,7 @@ for path in (TOOLS, SRC):
     if path.exists():
         sys.path.insert(0, str(path))
 
-import duckdb
+import numpy as np
 
 from music_recommender.baselines import (
     recommend_from_ranking,
@@ -25,6 +24,7 @@ from music_recommender.baselines import (
     recommend_random,
 )
 from music_recommender.evaluation import assert_unseen_recommendations, evaluate_topk
+from music_recommender.data_loader import MusicDataLoader
 
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
 OUTPUT_DIR = ROOT / "artifacts" / "baselines"
@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--split-version", default="feature_split_u5_i2_eval20_seed42_v1"
     )
+    parser.add_argument("--feature-schema-version", default="feature_matrix_audio_v1")
     parser.add_argument("--evaluation-split", choices=("validation", "test"), default="validation")
     parser.add_argument("--allow-test", action="store_true")
     parser.add_argument("--k", type=int, nargs="+", default=[10, 20])
@@ -50,112 +51,90 @@ def main() -> None:
     if any(k <= 0 for k in args.k):
         raise SystemExit("all --k values must be positive")
     max_k = max(args.k)
-    con = duckdb.connect(str(INTEGRATION), read_only=True)
-    split_exists = con.execute(
-        "SELECT count(*) FROM feature_split_datasets WHERE split_version = ?",
-        [args.split_version],
-    ).fetchone()[0]
-    if not split_exists:
-        raise SystemExit(f"unknown split version: {args.split_version}")
-
-    truth: dict[int, set[str]] = defaultdict(set)
-    for user, item in con.execute(
-        """
-        SELECT user_id, feature_cluster_id FROM feature_dataset_splits
-        WHERE split_version = ? AND split = ? ORDER BY user_id
-        """,
-        [args.split_version, args.evaluation_split],
-    ).fetchall():
-        truth[user].add(item)
+    loader = MusicDataLoader(
+        split_version=args.split_version,
+        feature_schema_version=args.feature_schema_version,
+        data_db_path=INTEGRATION,
+        allow_test=args.evaluation_split == "test" and args.allow_test,
+    )
+    train = loader.load_split("train")
+    raw_truth = loader.load_split_truth(args.evaluation_split)
+    feature_matrix = loader.load_feature_matrix()
+    item_ids = sorted(feature_matrix["feature_cluster_id"].astype(str).unique())
+    item_to_index = {item_id: index for index, item_id in enumerate(item_ids)}
+    truth = {
+        int(user): {item_to_index[str(item)] for item in items if str(item) in item_to_index}
+        for user, items in raw_truth.items()
+    }
+    truth = {user: items for user, items in truth.items() if items}
     users = sorted(truth)
     if not users:
         raise RuntimeError("evaluation split has no users")
 
-    seen: dict[int, set[str]] = defaultdict(set)
-    cursor = con.execute(
-        """
-        SELECT s.user_id, s.feature_cluster_id
-        FROM feature_dataset_splits s
-        JOIN (SELECT DISTINCT user_id FROM feature_dataset_splits
-              WHERE split_version = ? AND split = ?) e USING (user_id)
-        WHERE s.split_version = ? AND s.split = 'train'
-        ORDER BY s.user_id
-        """,
-        [args.split_version, args.evaluation_split, args.split_version],
-    )
-    while rows := cursor.fetchmany(100_000):
-        for user, item in rows:
+    seen: dict[int, set[int]] = {user: set() for user in users}
+    listener_counts = np.zeros(len(item_ids), dtype=np.int64)
+    confidence_sums = np.zeros(len(item_ids), dtype=np.float64)
+    user_history: dict[int, list[tuple[int, float]]] = {user: [] for user in users}
+    for row in train.itertuples(index=False):
+        user = int(row.user_id)
+        item = item_to_index.get(str(row.feature_cluster_id))
+        if item is None:
+            continue
+        confidence = 1.0 + np.log1p(max(0.0, float(row.playcount_raw)))
+        listener_counts[item] += 1
+        confidence_sums[item] += confidence
+        if user in seen:
             seen[user].add(item)
+            user_history[user].append((item, confidence))
 
-    item_rows = con.execute(
-        """
-        WITH train_stats AS (
-            SELECT
-                s.feature_cluster_id,
-                count(DISTINCT s.user_id) AS listener_count,
-                sum(i.confidence_log) AS confidence_sum
-            FROM feature_dataset_splits s
-            JOIN feature_graph_interactions i
-              ON s.user_id = i.user_id
-             AND s.feature_cluster_id = i.feature_cluster_id
-            JOIN feature_split_datasets d
-              ON s.split_version = d.split_version
-             AND i.dataset_version = d.dataset_version
-            WHERE s.split_version = ? AND s.split = 'train'
-            GROUP BY s.feature_cluster_id
-        )
-        SELECT
-            x.feature_cluster_id,
-            x.listener_count,
-            x.confidence_sum,
-            coalesce(c.canonical_popularity, 0)::INTEGER AS spotify_popularity
-        FROM train_stats x
-        JOIN spotify_feature_clusters c
-          ON x.feature_cluster_id = c.feature_cluster_id
-        ORDER BY x.feature_cluster_id
-        """,
-        [args.split_version],
-    ).fetchall()
-    catalog = [row[0] for row in item_rows]
+    catalog = list(range(len(item_ids)))
     catalog_set = set(catalog)
     global_ranking = [
-        row[0] for row in sorted(item_rows, key=lambda row: (-row[1], -row[2], row[0]))
+        item for item in sorted(
+            catalog,
+            key=lambda item: (
+                -listener_counts[item], -confidence_sums[item], item_ids[item]
+            ),
+        )
     ]
-
-    target_rows = con.execute(
+    popularity_rows = loader.execute_query(
         """
-        SELECT
-            s.user_id,
-            round(sum(coalesce(c.canonical_popularity, 0) * i.confidence_log)
-                  / sum(i.confidence_log))::INTEGER AS target_popularity
-        FROM feature_dataset_splits s
-        JOIN feature_graph_interactions i
-          ON s.user_id = i.user_id AND s.feature_cluster_id = i.feature_cluster_id
-        JOIN feature_split_datasets d
-          ON s.split_version = d.split_version AND i.dataset_version = d.dataset_version
-        JOIN spotify_feature_clusters c
-          ON s.feature_cluster_id = c.feature_cluster_id
-        JOIN (SELECT DISTINCT user_id FROM feature_dataset_splits
-              WHERE split_version = ? AND split = ?) e
-          ON s.user_id = e.user_id
-        WHERE s.split_version = ? AND s.split = 'train'
-        GROUP BY s.user_id
-        """,
-        [args.split_version, args.evaluation_split, args.split_version],
-    ).fetchall()
-    targets = {user: max(0, min(100, target)) for user, target in target_rows}
+        SELECT feature_cluster_id, canonical_popularity
+        FROM spotify_feature_clusters
+        """
+    )
+    popularity_by_item = {
+        str(row.feature_cluster_id): int(row.canonical_popularity)
+        for row in popularity_rows.itertuples(index=False)
+    }
+    item_popularity = np.asarray(
+        [popularity_by_item.get(item_id, 0) for item_id in item_ids], dtype=np.int16
+    )
+    targets: dict[int, int] = {}
+    for user in users:
+        history = user_history[user]
+        if not history:
+            targets[user] = 0
+            continue
+        total_weight = sum(weight for _, weight in history)
+        average = sum(weight * item_popularity[item] for item, weight in history) / total_weight
+        targets[user] = max(0, min(100, int(np.floor(average + 0.5))))
     used_targets = sorted(set(targets.values()))
     history_rankings = {
         target: [
-            row[0]
-            for row in sorted(
-                item_rows,
-                key=lambda row: (abs(row[3] - target), -row[1], -row[2], row[0]),
+            item
+            for item in sorted(
+                catalog,
+                key=lambda item: (
+                    abs(int(item_popularity[item]) - target),
+                    -listener_counts[item],
+                    -confidence_sums[item],
+                    item_ids[item],
+                ),
             )
         ]
         for target in used_targets
     }
-    con.close()
 
     generators = {
         "global_popularity": lambda: recommend_from_ranking(
@@ -164,11 +143,19 @@ def main() -> None:
         "user_history_popularity": lambda: recommend_history_popularity(
             users, seen, targets, history_rankings, max_k
         ),
-        "random": lambda: recommend_random(users, seen, catalog, max_k, args.seed),
+        "random": lambda: recommend_random(
+            users,
+            seen,
+            catalog,
+            max_k,
+            args.seed,
+            {user: user for user in users},
+        ),
     }
     results: dict[str, object] = {
         "output_version": args.output_version,
         "split_version": args.split_version,
+        "feature_schema_version": args.feature_schema_version,
         "evaluation_split": args.evaluation_split,
         "seed": args.seed,
         "k_values": sorted(set(args.k)),
@@ -193,6 +180,7 @@ def main() -> None:
     output = OUTPUT_DIR / f"{args.output_version}.json"
     output.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Results: {output}")
+    loader.close()
 
 
 if __name__ == "__main__":

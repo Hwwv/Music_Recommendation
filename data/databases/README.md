@@ -290,6 +290,23 @@ PYTHONPATH=.tools:src python3 scripts/run_baselines.py \
 Test evaluation is locked by default and requires the explicit `--allow-test`
 flag after model selection is frozen.
 
+Load the frozen split, aligned acoustic features, deterministic ID mappings,
+and SciPy CSR matrices through `music_recommender.data_loader`:
+
+```python
+from music_recommender.data_loader import load_experiment_data
+
+data = load_experiment_data(
+    "data/databases/integration.duckdb",
+    "feature_split_u5_i2_eval20_seed42_v1",
+    "feature_matrix_audio_v1",
+)
+```
+
+`data.train_binary` and `data.train_log_playcount` share their item columns
+with `data.item_features`. Test truth is `None` unless `allow_test=True` is
+explicitly passed.
+
 Export feature-level review samples:
 
 ```bash

@@ -19,10 +19,10 @@ def main() -> None:
         "dance_1": [0.1, 0.4, 1.0], "dance_2": [0.0, 0.3, 0.9],
     }
     interactions = [
-        Interaction("u1", "piano_1", 12), Interaction("u1", "rock_1", 4), Interaction("u1", "piano_2", 9),
-        Interaction("u2", "piano_1", 8), Interaction("u2", "piano_2", 10), Interaction("u2", "dance_1", 2),
-        Interaction("u3", "rock_1", 11), Interaction("u3", "rock_2", 9), Interaction("u3", "dance_2", 3),
-        Interaction("u4", "dance_1", 10), Interaction("u4", "dance_2", 12), Interaction("u4", "rock_2", 2),
+        Interaction(1, "piano_1", 12), Interaction(1, "rock_1", 4), Interaction(1, "piano_2", 9),
+        Interaction(2, "piano_1", 8), Interaction(2, "piano_2", 10), Interaction(2, "dance_1", 2),
+        Interaction(3, "rock_1", 11), Interaction(3, "rock_2", 9), Interaction(3, "dance_2", 3),
+        Interaction(4, "dance_1", 10), Interaction(4, "dance_2", 12), Interaction(4, "rock_2", 2),
     ]
     train, truth = leave_largest_out_split(interactions, minimum_to_split=3, seed=1)
     popularity = PopularityRecommender().fit(train)
