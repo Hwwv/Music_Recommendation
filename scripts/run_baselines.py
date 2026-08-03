@@ -24,7 +24,7 @@ from music_recommender.baselines import (
     recommend_random,
 )
 from music_recommender.evaluation import assert_unseen_recommendations, evaluate_topk
-from music_recommender.data_loader import load_experiment_data
+from music_recommender.data_loader import MusicDataLoader
 
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
 OUTPUT_DIR = ROOT / "artifacts" / "baselines"
@@ -51,42 +51,73 @@ def main() -> None:
     if any(k <= 0 for k in args.k):
         raise SystemExit("all --k values must be positive")
     max_k = max(args.k)
-    data = load_experiment_data(
-        INTEGRATION,
-        args.split_version,
-        args.feature_schema_version,
+    loader = MusicDataLoader(
+        split_version=args.split_version,
+        feature_schema_version=args.feature_schema_version,
+        data_db_path=INTEGRATION,
         allow_test=args.evaluation_split == "test" and args.allow_test,
     )
-    truth = (
-        data.validation_truth if args.evaluation_split == "validation" else data.test_truth
-    )
-    if truth is None:
-        raise RuntimeError("requested evaluation truth was not loaded")
+    train = loader.load_split("train")
+    raw_truth = loader.load_split_truth(args.evaluation_split)
+    feature_matrix = loader.load_feature_matrix()
+    item_ids = sorted(feature_matrix["feature_cluster_id"].astype(str).unique())
+    item_to_index = {item_id: index for index, item_id in enumerate(item_ids)}
+    truth = {
+        int(user): {item_to_index[str(item)] for item in items if str(item) in item_to_index}
+        for user, items in raw_truth.items()
+    }
+    truth = {user: items for user, items in truth.items() if items}
     users = sorted(truth)
     if not users:
         raise RuntimeError("evaluation split has no users")
 
-    seen = {
-        user: set(map(int, data.train_binary[user].indices))
-        for user in users
-    }
-    catalog = list(range(len(data.item_ids)))
+    seen: dict[int, set[int]] = {user: set() for user in users}
+    listener_counts = np.zeros(len(item_ids), dtype=np.int64)
+    confidence_sums = np.zeros(len(item_ids), dtype=np.float64)
+    user_history: dict[int, list[tuple[int, float]]] = {user: [] for user in users}
+    for row in train.itertuples(index=False):
+        user = int(row.user_id)
+        item = item_to_index.get(str(row.feature_cluster_id))
+        if item is None:
+            continue
+        confidence = 1.0 + np.log1p(max(0.0, float(row.playcount_raw)))
+        listener_counts[item] += 1
+        confidence_sums[item] += confidence
+        if user in seen:
+            seen[user].add(item)
+            user_history[user].append((item, confidence))
+
+    catalog = list(range(len(item_ids)))
     catalog_set = set(catalog)
-    listener_counts = np.asarray(data.train_binary.sum(axis=0)).ravel()
-    confidence = data.confidence(alpha=1.0)
-    confidence_sums = np.asarray(confidence.sum(axis=0)).ravel()
     global_ranking = [
         item for item in sorted(
             catalog,
             key=lambda item: (
-                -listener_counts[item], -confidence_sums[item], data.item_ids[item]
+                -listener_counts[item], -confidence_sums[item], item_ids[item]
             ),
         )
     ]
+    popularity_rows = loader.execute_query(
+        """
+        SELECT feature_cluster_id, canonical_popularity
+        FROM spotify_feature_clusters
+        """
+    )
+    popularity_by_item = {
+        str(row.feature_cluster_id): int(row.canonical_popularity)
+        for row in popularity_rows.itertuples(index=False)
+    }
+    item_popularity = np.asarray(
+        [popularity_by_item.get(item_id, 0) for item_id in item_ids], dtype=np.int16
+    )
     targets: dict[int, int] = {}
     for user in users:
-        row = confidence.getrow(user)
-        average = float(row.data @ data.item_popularity[row.indices]) / float(row.data.sum())
+        history = user_history[user]
+        if not history:
+            targets[user] = 0
+            continue
+        total_weight = sum(weight for _, weight in history)
+        average = sum(weight * item_popularity[item] for item, weight in history) / total_weight
         targets[user] = max(0, min(100, int(np.floor(average + 0.5))))
     used_targets = sorted(set(targets.values()))
     history_rankings = {
@@ -95,10 +126,10 @@ def main() -> None:
             for item in sorted(
                 catalog,
                 key=lambda item: (
-                    abs(int(data.item_popularity[item]) - target),
+                    abs(int(item_popularity[item]) - target),
                     -listener_counts[item],
                     -confidence_sums[item],
-                    data.item_ids[item],
+                    item_ids[item],
                 ),
             )
         ]
@@ -118,7 +149,7 @@ def main() -> None:
             catalog,
             max_k,
             args.seed,
-            {user: int(data.user_ids[user]) for user in users},
+            {user: user for user in users},
         ),
     }
     results: dict[str, object] = {
@@ -149,6 +180,7 @@ def main() -> None:
     output = OUTPUT_DIR / f"{args.output_version}.json"
     output.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Results: {output}")
+    loader.close()
 
 
 if __name__ == "__main__":
