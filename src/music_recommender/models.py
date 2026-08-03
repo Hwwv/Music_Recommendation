@@ -38,12 +38,12 @@ def _normalize(scores: Mapping[str, float]) -> ScoreMap:
 
 class BaseRecommender:
     catalog: set[str]
-    seen: dict[str, set[str]]
+    seen: dict[int, set[str]]
 
-    def score(self, user_id: str) -> ScoreMap:
+    def score(self, user_id: int) -> ScoreMap:
         raise NotImplementedError
 
-    def recommend(self, user_id: str, k: int = 10) -> list[str]:
+    def recommend(self, user_id: int, k: int = 10) -> list[str]:
         seen = self.seen.get(user_id, set())
         scores = self.score(user_id)
         return [item for item, _ in sorted(scores.items(), key=lambda x: (-x[1], x[0])) if item not in seen][:k]
@@ -60,7 +60,7 @@ class PopularityRecommender(BaseRecommender):
         self.catalog = set(totals)
         return self
 
-    def score(self, user_id: str) -> ScoreMap:
+    def score(self, user_id: int) -> ScoreMap:
         return dict(self.totals)
 
 
@@ -72,8 +72,8 @@ class ItemKNN(BaseRecommender):
         self.confidence_alpha = confidence_alpha
 
     def fit(self, interactions: Iterable[Interaction]) -> "ItemKNN":
-        self.user_weights: dict[str, dict[str, float]] = defaultdict(dict)
-        item_users: dict[str, dict[str, float]] = defaultdict(dict)
+        self.user_weights: dict[int, dict[str, float]] = defaultdict(dict)
+        item_users: dict[str, dict[int, float]] = defaultdict(dict)
         self.seen = defaultdict(set)
         for row in interactions:
             weight = 1.0 + self.confidence_alpha * math.log1p(max(0.0, row.play_count))
@@ -97,7 +97,7 @@ class ItemKNN(BaseRecommender):
             self.similar[item] = sorted(sims, key=lambda x: (-x[1], x[0]))[: self.neighbours]
         return self
 
-    def score(self, user_id: str) -> ScoreMap:
+    def score(self, user_id: int) -> ScoreMap:
         scores: dict[str, float] = defaultdict(float)
         for item, weight in self.user_weights.get(user_id, {}).items():
             for candidate, similarity in self.similar.get(item, []):
@@ -121,7 +121,7 @@ class MatrixFactorization(BaseRecommender):
         rng = random.Random(self.seed)
         self.user_vec = {u: [rng.uniform(-0.1, 0.1) for _ in range(self.factors)] for u in users}
         self.item_vec = {i: [rng.uniform(-0.1, 0.1) for _ in range(self.factors)] for i in items}
-        examples: list[tuple[str, str, float]] = []
+        examples: list[tuple[int, str, float]] = []
         for row in rows:
             self.seen[row.user_id].add(row.item_id)
             confidence = 1.0 + self.confidence_alpha * math.log1p(max(0.0, row.play_count))
@@ -138,7 +138,7 @@ class MatrixFactorization(BaseRecommender):
                     iv[f] += self.learning_rate * (error * old_u - self.regularization * iv[f])
         return self
 
-    def score(self, user_id: str) -> ScoreMap:
+    def score(self, user_id: int) -> ScoreMap:
         if user_id not in self.user_vec:
             return {}
         uv = self.user_vec[user_id]
@@ -159,7 +159,7 @@ class ContentRecommender(BaseRecommender):
         std_matrix = self.scalar.fit_transform(raw_matrix)
         self.std_features = {item: list(row) for item, row in zip(catalog_items, std_matrix)}
 
-        self.history: dict[str, list[tuple[str, float]]] = defaultdict(list)
+        self.history: dict[int, list[tuple[str, float]]] = defaultdict(list)
         self.seen = defaultdict(set)
         for row in interactions:
             if row.item_id not in self.features:
@@ -169,7 +169,7 @@ class ContentRecommender(BaseRecommender):
             self.seen[row.user_id].add(row.item_id)
         return self
 
-    def score(self, user_id: str) -> ScoreMap:
+    def score(self, user_id: int) -> ScoreMap:
         history = self.history.get(user_id, [])
         if not history:
             return {}
@@ -204,7 +204,7 @@ class MultiInterestContentRecommender(ContentRecommender):
 
         return self
 
-    def score(self, user_id: str) -> ScoreMap:
+    def score(self, user_id: int) -> ScoreMap:
         global_scores = super().score(user_id)
         history = self.history.get(user_id, [])
 
@@ -245,7 +245,7 @@ class HybridRecommender(BaseRecommender):
         for user in set(collaborative.seen) | set(content.seen):
             self.seen[user] = collaborative.seen.get(user, set()) | content.seen.get(user, set())
 
-    def score(self, user_id: str) -> ScoreMap:
+    def score(self, user_id: int) -> ScoreMap:
         cf, cb = _normalize(self.collaborative.score(user_id)), _normalize(self.content.score(user_id))
         return {item: self.cf_weight * cf.get(item, 0.0) + (1.0 - self.cf_weight) * cb.get(item, 0.0) for item in self.catalog}
 

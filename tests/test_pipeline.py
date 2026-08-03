@@ -13,9 +13,9 @@ from music_recommender.models import ContentRecommender, HybridRecommender, Item
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         self.rows = [
-            Interaction("a", "i1", 4), Interaction("a", "i2", 2),
-            Interaction("b", "i1", 3), Interaction("b", "i3", 5),
-            Interaction("c", "i2", 4), Interaction("c", "i3", 2),
+            Interaction(1, "i1", 4), Interaction(1, "i2", 2),
+            Interaction(2, "i1", 3), Interaction(2, "i3", 5),
+            Interaction(3, "i2", 4), Interaction(3, "i3", 2),
         ]
         self.features = {"i1": [1.0, 0.0], "i2": [0.8, 0.2], "i3": [0.0, 1.0]}
 
@@ -34,31 +34,31 @@ class PipelineTests(unittest.TestCase):
         content = ContentRecommender().fit(self.rows, self.features)
         hybrid = HybridRecommender(knn, content)
         for model in (pop, knn, content, hybrid):
-            self.assertTrue(set(model.recommend("a", 10)).isdisjoint({"i1", "i2"}))
+            self.assertTrue(set(model.recommend(1, 10)).isdisjoint({"i1", "i2"}))
 
     def test_metrics(self):
-        recs = {"a": ["x", "y"], "b": ["z", "x"]}
-        truth = {"a": "y", "b": "missing"}
+        recs = {1: ["x", "y"], 2: ["z", "x"]}
+        truth = {1: "y", 2: "missing"}
         self.assertEqual(recall_at_k(recs, truth, 2), 0.5)
         self.assertGreater(ndcg_at_k(recs, truth, 2), 0.0)
 
     def test_multi_item_topk_evaluation(self):
-        recs = {"a": ["i2", "i3", "x"], "b": ["i1", "z", "y"]}
-        truth = {"a": {"i1", "i2"}, "b": {"z"}}
+        recs = {1: ["i2", "i3", "x"], 2: ["i1", "z", "y"]}
+        truth = {1: {"i1", "i2"}, 2: {"z"}}
         result = evaluate_topk(recs, truth, {"i1", "i2", "i3", "x", "y", "z"}, [2])
         self.assertAlmostEqual(result["recall@2"], 0.75)
         self.assertEqual(result["hit_rate@2"], 1.0)
         self.assertGreater(result["ndcg@2"], 0.0)
 
         limited = evaluate_topk(
-            {"a": ["i1", "i2"]}, {"a": {"i1", "i2", "i3", "i4"}},
+            {1: ["i1", "i2"]}, {1: {"i1", "i2", "i3", "i4"}},
             {"i1", "i2", "i3", "i4"}, [2]
         )
         self.assertEqual(limited["recall@2"], 0.5)
 
     def test_seen_item_guard(self):
         with self.assertRaises(AssertionError):
-            assert_unseen_recommendations({"a": ["seen"]}, {"a": {"seen"}})
+            assert_unseen_recommendations({1: ["seen"]}, {1: {"seen"}})
 
 
 if __name__ == "__main__":
