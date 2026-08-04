@@ -10,21 +10,25 @@ from __future__ import annotations
 
 from collections import defaultdict
 import math
+import numpy as np
 import random
 from typing import Iterable, Mapping
 
 from .data import Interaction
 
-from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 
 
 ScoreMap = dict[str, float]
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    denom = math.sqrt(sum(x * x for x in a) * sum(x * x for x in b))
-    return sum(x * y for x, y in zip(a, b)) / denom if denom else 0.0
+def _cosine(a: Iterable[float], b: Iterable[float]) -> float:
+    a = np.array(a, dtype=np.float64)
+    b = np.array(b, dtype=np.float64)
+    denom = np.linalg.norm(a) * np.linalg.norm(b)
+    return np.dot(a, b) / denom if denom else 0.0
+    # denom = math.sqrt(sum(x * x for x in a) * sum(x * x for x in b))
+    # return sum(x * y for x, y in zip(a, b)) / denom if denom else 0.0
 
 
 def _normalize(scores: Mapping[str, float]) -> ScoreMap:
@@ -152,12 +156,14 @@ class ContentRecommender(BaseRecommender):
     def fit(self, interactions: Iterable[Interaction], features: Mapping[str, list[float]]) -> "ContentRecommender":
         self.features = {item: list(vector) for item, vector in features.items()}
         self.catalog = set(self.features)
-        catalog_items = list(self.catalog)
+        catalog_items = sorted(self.catalog)
 
-        self.scalar = StandardScaler()
+        self.item_ids = catalog_items
+
         raw_matrix = [self.features[item] for item in catalog_items]
-        std_matrix = self.scalar.fit_transform(raw_matrix)
-        self.std_features = {item: list(row) for item, row in zip(catalog_items, std_matrix)}
+        
+        self.feature_matrix = np.array(raw_matrix)
+        self.feature_norms = np.linalg.norm(self.feature_matrix, axis=1)
 
         self.history: dict[int, list[tuple[str, float]]] = defaultdict(list)
         self.seen = defaultdict(set)
@@ -167,16 +173,25 @@ class ContentRecommender(BaseRecommender):
             weight = 1.0 + self.confidence_alpha * math.log1p(max(0.0, row.play_count))
             self.history[row.user_id].append((row.item_id, weight))
             self.seen[row.user_id].add(row.item_id)
+
+        self.user_profiles: dict[int, np.ndarray] = {}
+        self.user_profile_norms: dict[int, float] = {}
+        for user, history in self.history.items():
+            if history:
+                indices = [self.item_ids.index(item) for item, _ in history]
+                weights = np.array([weight for _, weight in history])
+                profile = np.average(self.feature_matrix[indices], axis=0, weights=weights)
+                self.user_profiles[user] = profile
+                self.user_profile_norms[user] = np.linalg.norm(profile)
         return self
 
     def score(self, user_id: int) -> ScoreMap:
-        history = self.history.get(user_id, [])
-        if not history:
+        if user_id not in self.user_profiles:
             return {}
-        width = len(next(iter(self.features.values())))
-        total = sum(weight for _, weight in history)
-        profile = [sum(self.features[item][j] * weight for item, weight in history) / total for j in range(width)]
-        return {item: _cosine(profile, vector) for item, vector in self.features.items()}
+        profile = self.user_profiles[user_id]
+        profile_norm = self.user_profile_norms[user_id]
+        similarities = np.dot(self.feature_matrix, profile) / (self.feature_norms * profile_norm)
+        return {item: float(sim) for item, sim in zip(self.item_ids, similarities)}
 
 
 class MultiInterestContentRecommender(ContentRecommender):
@@ -194,10 +209,9 @@ class MultiInterestContentRecommender(ContentRecommender):
         else:
             self.feature_dim = 0
         
-        catalog_items = list(self.catalog)
-        feature_vectors = [self.std_features[item] for item in catalog_items]
-
-        kmeans = KMeans(n_clusters=k, random_state=311).fit(feature_vectors)
+        catalog_items = sorted(self.catalog)
+        
+        kmeans = KMeans(n_clusters=k, random_state=311).fit(self.feature_matrix)
         self.cluster_labels = {item: kmeans.labels_[i] for i, item in enumerate(catalog_items)}
         for item, cluster in self.cluster_labels.items():
             self.cluster_to_track[cluster].add(item)
@@ -219,16 +233,18 @@ class MultiInterestContentRecommender(ContentRecommender):
         all_cluster_total_weight = 0.0
         mean_vectors: dict[int, tuple[float, list[float]]] = {}
         for cluster, items in user_clusters.items():
-            total_weight = sum(weight for _, weight in items)
+            item_vecs = np.array([self.features[item] for item, _ in items])
+            weights = np.array([weight for _, weight in items])
+            total_weight = np.sum(weights)
             all_cluster_total_weight += total_weight
-            mean_vector = [sum(self.std_features[item][j] * weight for item, weight in items) / total_weight for j in range(self.feature_dim)]
+            mean_vector = np.average(item_vecs, axis=0, weights=weights)
             mean_vectors[cluster] = (total_weight, mean_vector)
 
         scores = {item: score*self.global_weight for item, score in global_scores.items()}
         for cluster, (weight, mean_vector) in mean_vectors.items():
             weight_normalized = weight / all_cluster_total_weight if all_cluster_total_weight > 0 else 0.0
             for item in self.cluster_to_track[cluster]:
-                local_score = _cosine(mean_vector, self.std_features[item]) * weight_normalized
+                local_score = _cosine(mean_vector, self.features[item]) * weight_normalized
                 global_score = global_scores.get(item, 0.0)
                 scores[item] = self.global_weight * global_score + (1 - self.global_weight) * local_score
 

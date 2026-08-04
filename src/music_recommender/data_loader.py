@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from .data import Interaction, Split
+from .data import Interaction
 from pathlib import Path
 from typing import Dict
 import duckdb
