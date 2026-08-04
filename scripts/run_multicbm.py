@@ -10,13 +10,16 @@ from pathlib import Path
 import sys
 import time
 
-from src.music_recommender.data_loader import MusicDataLoader
-from src.music_recommender.evaluation import evaluate_topk, assert_unseen_recommendations
-from src.music_recommender.models import MultiInterestContentRecommender
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
 
-ROOT = Path(__file__).resolve().parents[2]
+from music_recommender.data_loader import MusicDataLoader
+from music_recommender.evaluation import evaluate_topk, assert_unseen_recommendations
+from music_recommender.models import MultiInterestContentRecommender
+
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
-MULTICBM_OUTPUT_DIR = ROOT / "artifacts" / "multicbm"
+MULTICBM_OUTPUT_DIR = ROOT / "artifacts" / "multicbm2"
 
 DATASET_VERSION = "feature_graph_u5_i2_v1"
 SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"
@@ -25,9 +28,9 @@ MULTICBM_OUTPUT_VERSION = "multicbm_eval20_validation_v1"
 
 ALLOW_TEST = False 
 KS = [10, 20]
-ALPHAS = np.linspace(0.1, 1.0, 10)
-GLOBAL_WEIGHTS = np.linspace(0.1, 1.0, 10)
-K_FOR_KMEANS = list(range(2, 21, 2))
+ALPHAS = [0.7, 0.8, 0.9, 0.95]
+GLOBAL_WEIGHTS = [0, 0.1, 0.2, 0.3]
+K_FOR_KMEANS = [5, 10, 15, 16, 20]
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,9 +71,13 @@ def main():
     validation_users = sorted(set(validation_truths.keys()))
 
     # Train and evaluate the Multi-Interest Content-Based Recommender (Multi-CBM)
+    output_dir = Path(args.multicbm_output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    multicbm_output = output_dir / f"{args.multicbm_output_version}.json"
     for alpha in args.alphas:
         for global_weight in args.global_weights:
             for km in args.k_for_kmeans:
+                print(f"alpha: {alpha}, global weight:{global_weight}, km: {km}")
                 multicbm_recommender = MultiInterestContentRecommender(confidence_alpha=alpha, global_weight=global_weight)
                 multicbm_recommender.fit(train_interactions, features, k=km)
                 seen = multicbm_recommender.seen.copy()
@@ -83,8 +90,17 @@ def main():
                 metrics = evaluate_topk(recommendations, validation_truths, catalog, k_values=args.ks)
                 results_multicbm[(alpha, global_weight, km)] = metrics
 
-    output_dir = Path(args.multicbm_output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    multicbm_output = output_dir / f"{args.multicbm_output_version}.json"
-    multicbm_output.write_text(json.dumps(results_multicbm, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                serializable_results = {}
+                for key, value in results_multicbm.items():
+                    key_str = f"alpha_{key[0]:.2f}_gw_{key[1]:.2f}_km_{key[2]}"
+                    serializable_results[key_str] = value
+
+                multicbm_output.write_text(json.dumps(serializable_results, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                print(f"{len(results_multicbm)} configurations saved")
+
+                print(f"metrics: {metrics}")
+
     print(f"Multi-CBM results saved to {multicbm_output.resolve()}")
+
+if __name__ == "__main__":
+    main()
