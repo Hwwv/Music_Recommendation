@@ -61,10 +61,8 @@ def main():
 
     # Train the models with different hyperparameters and get results for the validation set
     
-    train_interactions = data_loader.load_split_interactions("train")
-    features = data_loader.load_feature_mappings()
-    test_truths = data_loader.load_split_truth("test")
-    test_users = sorted(set(test_truths.keys()))
+    experiment = data_loader.load_experiment("test")
+    test_users = sorted(experiment.truth)
 
     # Train and evaluate the Multi-Interest Content-Based Recommender (Multi-CBM)
     output_dir = Path(args.multicbm_output_dir)
@@ -73,15 +71,22 @@ def main():
     alpha, global_weight, km = args.alpha, args.global_weight, args.k_for_kmeans
     print(f"alpha: {alpha}, global weight:{global_weight}, km: {km}")
     multicbm_recommender = MultiInterestContentRecommender(confidence_alpha=alpha, global_weight=global_weight)
-    multicbm_recommender.fit(train_interactions, features, k=km)
-    seen = multicbm_recommender.seen.copy()
-    catalog = multicbm_recommender.catalog
+    multicbm_recommender.fit(
+        experiment.train,
+        experiment.features,
+        k=km,
+    )
 
     recommendations = {}
     for user in test_users:
         recommendations[user] = multicbm_recommender.recommend(user, k=max(args.k))
-    assert_unseen_recommendations(recommendations, seen)
-    metrics = evaluate_topk(recommendations, test_truths, catalog, k_values=args.k)
+    assert_unseen_recommendations(recommendations, experiment.seen)
+    metrics = evaluate_topk(
+        recommendations,
+        experiment.truth,
+        set(experiment.catalog),
+        k_values=args.k,
+    )
 
     serializable_results = {}
     key_str = f"alpha_{alpha}_gw_{global_weight}_km_{km}"
@@ -92,6 +97,7 @@ def main():
     print(f"metrics: {metrics}")
 
     print(f"Multi-CBM results saved to {multicbm_output.resolve()}")
+    data_loader.close()
 
 if __name__ == "__main__":
     main()

@@ -57,14 +57,12 @@ def main() -> None:
         data_db_path=INTEGRATION,
         allow_test=args.evaluation_split == "test" and args.allow_test,
     )
-    train = loader.load_split("train")
-    raw_truth = loader.load_split_truth(args.evaluation_split)
-    feature_matrix = loader.load_feature_matrix()
-    item_ids = sorted(feature_matrix["feature_cluster_id"].astype(str).unique())
+    experiment = loader.load_experiment(args.evaluation_split)
+    item_ids = list(experiment.catalog)
     item_to_index = {item_id: index for index, item_id in enumerate(item_ids)}
     truth = {
         int(user): {item_to_index[str(item)] for item in items if str(item) in item_to_index}
-        for user, items in raw_truth.items()
+        for user, items in experiment.truth.items()
     }
     truth = {user: items for user, items in truth.items() if items}
     users = sorted(truth)
@@ -75,12 +73,12 @@ def main() -> None:
     listener_counts = np.zeros(len(item_ids), dtype=np.int64)
     confidence_sums = np.zeros(len(item_ids), dtype=np.float64)
     user_history: dict[int, list[tuple[int, float]]] = {user: [] for user in users}
-    for row in train.itertuples(index=False):
+    for row in experiment.train:
         user = int(row.user_id)
-        item = item_to_index.get(str(row.feature_cluster_id))
+        item = item_to_index.get(str(row.item_id))
         if item is None:
             continue
-        confidence = 1.0 + np.log1p(max(0.0, float(row.playcount_raw)))
+        confidence = 1.0 + np.log1p(max(0.0, float(row.play_count)))
         listener_counts[item] += 1
         confidence_sums[item] += confidence
         if user in seen:
@@ -154,6 +152,7 @@ def main() -> None:
     }
     results: dict[str, object] = {
         "output_version": args.output_version,
+        "dataset_version": experiment.dataset_version,
         "split_version": args.split_version,
         "feature_schema_version": args.feature_schema_version,
         "evaluation_split": args.evaluation_split,

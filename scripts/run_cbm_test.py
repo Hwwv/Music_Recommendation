@@ -57,29 +57,26 @@ def main():
 
     # Train the models with different hyperparameters and get results for the test set
     
-    train_interactions = data_loader.load_split_interactions("train")
-    features = data_loader.load_feature_mappings()
-
-    features = {item: vec for item, vec in features.items()}
-
-    test_truths = data_loader.load_split_truth("test")
-    test_users = sorted(set(test_truths.keys()))
+    experiment = data_loader.load_experiment("test")
+    test_users = sorted(experiment.truth)
 
     # Train and evaluate the Content-Based Recommender (CBM)
     alpha = args.alpha
     print(f"alpha={alpha}")
     cbm_recommender = ContentRecommender(confidence_alpha=alpha)
-    cbm_recommender.fit(train_interactions, features)
-
-    seen = cbm_recommender.seen.copy()
-    catalog = cbm_recommender.catalog
+    cbm_recommender.fit(experiment.train, experiment.features)
 
     recommendations = {}
     for user in test_users:
         recommendations[user] = cbm_recommender.recommend(user, k=max(args.k))
-    assert_unseen_recommendations(recommendations, seen)
+    assert_unseen_recommendations(recommendations, experiment.seen)
 
-    metrics = evaluate_topk(recommendations, test_truths, catalog, k_values=args.k)
+    metrics = evaluate_topk(
+        recommendations,
+        experiment.truth,
+        set(experiment.catalog),
+        k_values=args.k,
+    )
     print(metrics)
 
     output_dir = Path(args.cbm_output_dir)
@@ -87,6 +84,7 @@ def main():
     cbm_output = output_dir / f"{CBM_OUTPUT_VERSION}.json"
     cbm_output.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"CBM results saved to {cbm_output.resolve()}")
+    data_loader.close()
 
 
 if __name__ == "__main__":

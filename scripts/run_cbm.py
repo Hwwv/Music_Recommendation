@@ -191,29 +191,33 @@ def main():
     # Train the models with different hyperparameters and get results for the validation set
     results_cbm: dict[float, dict] = defaultdict(dict)
 
-    train_interactions = data_loader.load_split_interactions("train")
-    features = data_loader.load_feature_mappings()
+    experiment = data_loader.load_experiment("validation")
 
-    features = {item: vec[:N_CONTINUOUS] for item, vec in features.items()}
-
-    validation_truths = data_loader.load_split_truth("validation")
-    validation_users = sorted(set(validation_truths.keys()))
+    # CBM intentionally uses only the continuous audio features. The shared
+    # experiment contract still owns the aligned train/truth/catalog/seen data.
+    features = {
+        item: vector[:N_CONTINUOUS]
+        for item, vector in experiment.features.items()
+    }
+    validation_users = sorted(experiment.truth)
 
     # Train and evaluate the Content-Based Recommender (CBM)
     for alpha in args.alphas:
         print(f"alpha={alpha}")
         cbm_recommender = ContentRecommender(confidence_alpha=alpha)
-        cbm_recommender.fit(train_interactions, features)
-
-        seen = cbm_recommender.seen.copy()
-        catalog = cbm_recommender.catalog
+        cbm_recommender.fit(experiment.train, features)
 
         recommendations = {}
         for user in validation_users:
             recommendations[user] = cbm_recommender.recommend(user, k=max(args.ks))
-        assert_unseen_recommendations(recommendations, seen)
+        assert_unseen_recommendations(recommendations, experiment.seen)
 
-        metrics = evaluate_topk(recommendations, validation_truths, catalog, k_values=args.ks)
+        metrics = evaluate_topk(
+            recommendations,
+            experiment.truth,
+            set(experiment.catalog),
+            k_values=args.ks,
+        )
         results_cbm[alpha] = metrics
 
     output_dir = Path(args.cbm_output_dir)
@@ -223,6 +227,7 @@ def main():
     print(f"CBM results saved to {cbm_output.resolve()}")
 
     plot_cbm_experiments(result=results_cbm, ks=args.ks, alphas=args.alphas, output_dir=args.cbm_output_dir)
+    data_loader.close()
 
 
 if __name__ == "__main__":
