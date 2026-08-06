@@ -19,18 +19,18 @@ from music_recommender.evaluation import evaluate_topk, assert_unseen_recommenda
 from music_recommender.models import MultiInterestContentRecommender
 
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
-MULTICBM_OUTPUT_DIR = ROOT / "artifacts" / "multicbm2"
+MULTICBM_OUTPUT_DIR = ROOT / "artifacts" / "multicbm"
 
 DATASET_VERSION = "feature_graph_u5_i2_v1"
 SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"
 FEATURE_SCHEMA_VERSION = "feature_matrix_audio_v1"
-MULTICBM_OUTPUT_VERSION = "multicbm_eval20_validation_v1"
+MULTICBM_OUTPUT_VERSION = "multicbm_eval20_validation_v3"
 
 ALLOW_TEST = False 
 KS = [10, 20]
-ALPHAS = [0.7, 0.8, 0.9, 0.95]
-GLOBAL_WEIGHTS = [0, 0.1, 0.2, 0.3]
-K_FOR_KMEANS = [5, 10, 15, 16, 20]
+ALPHAS = [0.9]
+GLOBAL_WEIGHTS = [0.1, 0.2, 0.3]
+K_FOR_KMEANS = [8, 16]
 
 
 def parse_args() -> argparse.Namespace:
