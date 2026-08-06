@@ -51,6 +51,15 @@ follows Hu, Koren, and Volinsky, *Collaborative Filtering for Implicit Feedback
 Datasets* (ICDM 2008), included at `reference/cf.pdf`. Test data remain locked
 during model selection.
 
+## Unified experiment loader
+
+`MusicDataLoader.load_experiment("validation")` returns one version-checked
+`ExperimentData` bundle containing typed training interactions, held-out truth,
+item features, the canonical catalog, and per-user seen items. CF, content, and
+hybrid runners should consume this bundle instead of issuing independent
+database queries. The record and feature-mapping methods do not require pandas;
+the older DataFrame methods remain available for analysis notebooks.
+
 ## Dataset contract
 
 Place the Kaggle exports under `data/raw/` (they are intentionally not committed):

@@ -2,12 +2,13 @@ import duckdb
 import sys
 import numpy as np
 import unittest
+from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from music_recommender.data import Interaction
-from music_recommender.data_loader import MusicDataLoader
+from music_recommender.data_loader import ExperimentData, MusicDataLoader
 
 
 
@@ -50,6 +51,32 @@ class TestDataLoader(unittest.TestCase):
         self.assertTrue(all(isinstance(row, Interaction) for row in train_interactions))
         print(f"Train interactions: {len(train_interactions):,}")
 
+
+    def test_pandas_free_record_contract(self):
+        records = self.loader.load_split_records("validation")
+        self.assertTrue(records)
+        self.assertTrue(all(isinstance(row, Interaction) for row in records))
+        self.assertEqual(
+            records,
+            sorted(records, key=lambda row: (row.user_id, row.item_id)),
+        )
+
+
+    def test_experiment_contract_is_aligned(self):
+        experiment = self.loader.load_experiment("validation")
+        self.assertIsInstance(experiment, ExperimentData)
+        train_items = {row.item_id for row in experiment.train}
+        truth_items = set().union(*experiment.truth.values())
+        self.assertEqual(train_items, set(experiment.catalog))
+        self.assertEqual(set(experiment.features), set(experiment.catalog))
+        self.assertEqual(len(experiment.feature_columns), 29)
+        self.assertEqual(experiment.feature_metadata["feature_count"], 29)
+        self.assertTrue(truth_items <= set(experiment.catalog))
+        expected_seen = defaultdict(set)
+        for row in experiment.train:
+            expected_seen[row.user_id].add(row.item_id)
+        self.assertEqual(experiment.seen, dict(expected_seen))
+
     
     def test_load_test_not_allowed(self):
         self.loader.allow_test = False
@@ -67,10 +94,29 @@ class TestDataLoader(unittest.TestCase):
         self.assertTrue(hasattr(splits, 'metadata'))
         self.assertTrue(len(splits.train) > 0)
         train, valid, test = splits.train, splits.validation, splits.test
-        test_frac, valid_frac = splits.metadata['test_fraction'], splits.metadata['validation_fraction']
+        test_frac = splits.metadata['test_fraction']
+        valid_frac = splits.metadata['validation_fraction']
+        minimum = splits.metadata['min_evaluation_items']
+        user_counts = self.loader.execute_query(
+            """
+            SELECT user_id, count(*) AS total,
+                   count(*) FILTER (WHERE split = 'validation') AS validation_count,
+                   count(*) FILTER (WHERE split = 'test') AS test_count
+            FROM feature_dataset_splits
+            WHERE split_version = ?
+            GROUP BY user_id
+            """,
+            [self.loader.split_version],
+            fetch_type="all",
+        )
+        for _, user_total, validation_count, test_count in user_counts:
+            if user_total >= minimum:
+                self.assertEqual(validation_count, max(1, int(user_total * valid_frac)))
+                self.assertEqual(test_count, max(1, int(user_total * test_frac)))
+            else:
+                self.assertEqual(validation_count, 0)
+                self.assertEqual(test_count, 0)
         total = len(train) + len(valid) + len(test)
-        self.assertAlmostEqual(len(test) / total, test_frac, delta=0.05)
-        self.assertAlmostEqual(len(valid) / total, valid_frac, delta=0.05)
         print(f"Train: {len(train):,} ({len(train)/total:.2%}), ")
         print(f"Validation: {len(valid):,} ({len(valid)/total:.2%}), ")
         print(f"Test: {len(test):,} ({len(test)/total:.2%}), ")

@@ -10,7 +10,7 @@ from importlib import import_module
 
 __all__ = [
     "ContentRecommender", "HybridRecommender", "Interaction", "ItemKNN",
-    "ImplicitALS", "MatrixFactorization", "MusicDataLoader",
+    "ImplicitALS", "MatrixFactorization", "MusicDataLoader", "ExperimentData",
     "MultiInterestContentRecommender", "PopularityRecommender", "Split",
     "SparseItemKNN", "leave_largest_out_split", "normalize_text",
 ]
@@ -20,6 +20,7 @@ _EXPORTS = {
     "leave_largest_out_split": (".data", "leave_largest_out_split"),
     "normalize_text": (".data", "normalize_text"),
     "MusicDataLoader": (".data_loader", "MusicDataLoader"),
+    "ExperimentData": (".data_loader", "ExperimentData"),
     "Split": (".data_loader", "Split"),
     "ContentRecommender": (".models", "ContentRecommender"),
     "HybridRecommender": (".models", "HybridRecommender"),
