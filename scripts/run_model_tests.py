@@ -34,17 +34,17 @@ ALS_PARAMS = {
     "iterations": 20,
     "regularization": 0.1
     }
-HYBRID_PARAMS = {"cf_weight": 0.5}
+HYBRID_PARAMS = {"cf_weight": 0.4}
 
 BASELINE_DIR = ROOT / "artifacts" / "baselines" / "baselines_eval20_test_v1.json"
-OUTPUT_DIR = ROOT / "artifacts" / "test"
+OUTPUT_DIR = ROOT / "artifacts" / "test2"
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
 DATASET_VERSION = "feature_graph_u5_i2_v1"
 SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"
 FEATURE_SCHEMA_VERSION = "feature_matrix_audio_v1"
-OUTPUT_VERSION = "test_v1"
+OUTPUT_VERSION = "test_v3_k1020_cfw4"
 DatabaseRow = namedtuple("DatabaseRow", "user_id feature_cluster_id playcount_raw")
-K = 20
+K = [10, 20]
 
 
 def load_train_and_test(split_version: str):
@@ -116,7 +116,7 @@ def normalize_rows(matrix: np.ndarray) -> np.ndarray:
     return np.where(denom > 0, (matrix-row_min) / denom, 1.0)
 
 
-def plot_result_bars(results: dict, metric_names: list, label_config: bool = False, configurations: dict = None, save: bool = True, baseline=None):
+def plot_result_bars(results: dict, metric_names: list, label_config: bool = False, configurations: dict = None, output_dir=None, baseline=None):
     model_names = results.keys()
     data = {}
     if baseline:
@@ -148,11 +148,10 @@ def plot_result_bars(results: dict, metric_names: list, label_config: bool = Fal
         ax.bar_label(container, fmt='%.4f', padding=3, fontsize=6)
     plt.tight_layout()
 
-    if save:
-        plot_path = Path(OUTPUT_DIR / "test_metrics_plot.jpg")
-        plot_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-        print(f"plot saved to {plot_path}")
+    if output_dir:
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_dir, dpi=150, bbox_inches='tight')
+        print(f"plot saved to {output_dir}")
 
     plt.show()
     
@@ -163,7 +162,8 @@ def main() -> dict:
     # load the dataset and configurations for cf and als
     train, truth, dataset_version = load_train_and_test(args.split_version)
     users = sorted(truth)
-    k = args.k
+    ks = args.k
+    max_k = max(ks)
     cf_configurations = (
         args.cf_params
     )
@@ -198,7 +198,7 @@ def main() -> dict:
     cf_seen = None
     # cf and als recommendations
     for recommender, label in zip([cf_recommender, als_recommender], ["cf", "als"]):
-        recommendations = recommend_users(recommender, users, k)
+        recommendations = recommend_users(recommender, users, max_k)
         seen = {
             user: {str(recommender.data.item_ids[i]) for i in recommender.data.confidence.getrow(
                 recommender.data.user_to_index[user]
@@ -208,7 +208,7 @@ def main() -> dict:
         if label == "cf":
             cf_seen = seen
         assert_unseen_recommendations(recommendations, seen)
-        metrics = evaluate_topk(recommendations, truth, set(map(str, recommender.data.item_ids)), [k])
+        metrics = evaluate_topk(recommendations, truth, set(map(str, recommender.data.item_ids)), ks)
         results[label] = metrics
         print(f"{label} metrics: {metrics}")
 
@@ -221,13 +221,13 @@ def main() -> dict:
     multi_cbm_recommendations = {}
     cbm_recommendations = {}
     for user in users:
-        cbm_recommendations[user] = cbm_recommender.recommend(user, k=k)
-        multi_cbm_recommendations[user] = multi_cbm_recommender.recommend(user, k=k)
+        cbm_recommendations[user] = cbm_recommender.recommend(user, k=max_k)
+        multi_cbm_recommendations[user] = multi_cbm_recommender.recommend(user, k=max_k)
     assert_unseen_recommendations(cbm_recommendations, cbm_seen)
     assert_unseen_recommendations(multi_cbm_recommendations, multi_cbm_seen)
 
-    cbm_metrics = evaluate_topk(cbm_recommendations, truth=truth, catalog=cbm_catalog, k_values=[k])
-    multi_cbm_metrics = evaluate_topk(multi_cbm_recommendations, truth=truth, catalog=multi_cbm_catalog, k_values=[k])
+    cbm_metrics = evaluate_topk(cbm_recommendations, truth=truth, catalog=cbm_catalog, k_values=ks)
+    multi_cbm_metrics = evaluate_topk(multi_cbm_recommendations, truth=truth, catalog=multi_cbm_catalog, k_values=ks)
     results["cbm"] = cbm_metrics
     results["multi_cbm"] = multi_cbm_metrics
     print(f"cbm metrics: {cbm_metrics} \nmulti-interest cbm metrics: {multi_cbm_metrics}")
@@ -261,14 +261,14 @@ def main() -> dict:
 
     hybrid_recommendations = {}
     for row, user in enumerate(users):
-        top_idx = np.argpartition(combined[row], -k)[-k:]
+        top_idx = np.argpartition(combined[row], -max_k)[-max_k:]
         top_idx = top_idx[np.argsort(-combined[row, top_idx])]
         hybrid_recommendations[user] = [common_items[i] for i in top_idx if np.isfinite(combined[row, i])]
 
     assert_unseen_recommendations(hybrid_recommendations, cf_seen)
     assert_unseen_recommendations(hybrid_recommendations, dict(cbm_recommender.seen))
         
-    hybrid_metrics = evaluate_topk(hybrid_recommendations, truth, set(common_items), [k])
+    hybrid_metrics = evaluate_topk(hybrid_recommendations, truth, set(common_items), ks)
     results["hybrid"] = hybrid_metrics
     print(f"hybrid metrics: {hybrid_metrics}")
 
@@ -291,7 +291,7 @@ def main() -> dict:
 
 def plot_main(results, config=False, save=True, baseline=None):
     args = parse_args()
-    k = args.k
+    ks = args.k
     configutations = {
         "cf": args.cf_params,
         "als": args.als_params,
@@ -299,8 +299,13 @@ def plot_main(results, config=False, save=True, baseline=None):
         "multi_cbm": args.multicbm_params,
         "hybrid": args.hybrid_params
     }
-    metric_names = [f"recall@{k}", f"ndcg@{k}", f"hit_rate@{k}", f"catalog_coverage@{k}"]
-    plot_result_bars(results=results, configurations=configutations, metric_names=metric_names, label_config=config, save=save, baseline=baseline)
+    for k in ks:
+        metric_names = [f"recall@{k}", f"ndcg@{k}", f"hit_rate@{k}", f"catalog_coverage@{k}"]
+        if save: 
+            output_dir = Path(OUTPUT_DIR / f"test_metrics_plot{k}.jpg")
+        plot_result_bars(results=results, configurations=configutations, 
+                         metric_names=metric_names, label_config=config, 
+                         output_dir=output_dir, baseline=baseline)
 
 
 if __name__ == "__main__":
