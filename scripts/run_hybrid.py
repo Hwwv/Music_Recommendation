@@ -85,10 +85,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--neighbours", type=int, nargs="+", default=[200])
     parser.add_argument("--weighting", nargs="+", choices=("cosine", "bm25"), default=["bm25"])
     parser.add_argument("--min-cooccurrence", type=int, nargs="+", default=[2])
-    parser.add_argument("--regularization", type=float, nargs="+", default=[0.01, 0.1])
     parser.add_argument("--k", type=int, nargs="+", default=[20])
-    parser.add_argument("--cf_weight", type=float, default=[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--cf_weight", nargs="+", default=[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
     parser.add_argument("--output-version", default=None)
     return parser.parse_args()
 
