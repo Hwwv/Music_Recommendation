@@ -12,3 +12,4 @@ artifacts/*
 !data/processed/.gitkeep
 !data/databases/.gitkeep
 !artifacts/.gitkeep
+*.egg-info/
