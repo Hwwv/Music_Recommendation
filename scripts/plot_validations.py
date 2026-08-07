@@ -18,7 +18,7 @@ RESULT_FILES = {
     "cbm":                Path("artifacts/cbm/cbm_eval20_validation_v1.json"),
     "multi_cbm":          Path("artifacts/multicbm/multicbm_eval20_validation_v3.json"),
     "cf":                 Path("artifacts/cf/item-knn_validation_v1.json"),
-    "als":                Path("artifacts/als/als_validation_v1.json"),
+    "als":                Path("artifacts/cf/als_validation_v1.json"),
     "hybrid":             Path("artifacts/hybrid/hybrid_validation_v1.json"),
     "cbm_genre":          Path("artifacts2/cbm/cbm_eval20_validation_v1.json"),
     "multi_cbm_genre":    Path("artifacts2/multicbm2/multicbm_eval20_validation_genre_v1.json"),
