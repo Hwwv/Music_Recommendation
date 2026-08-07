@@ -162,6 +162,7 @@ def main() -> None:
         c="red", edgecolors="black", s=user_sizes,
         label=f"User {example_user} history", zorder=5,
     )
+    ax.set_ylim(bottom=-8)
     ax.set_title(f"Item feature space (PCA), user {example_user} history highlighted (k={args.k})")
     ax.legend()
     fig.tight_layout()

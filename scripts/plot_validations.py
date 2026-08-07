@@ -2,12 +2,8 @@
 """Visualize the validation-time hyperparameter sweeps for every model variant.
 
 Produces:
-  - one standalone panel PNG per model (drop each into its own Overleaf
-    subfigure, or arrange them yourself in a 2x4 / 2x5 grid)
-  - one compact combined 2x4 grid PNG with everything in a single figure
-
-Edit RESULT_FILES below to point at your real artifact paths, then run:
-    python plot_validation_sweeps.py
+  - one standalone panel PNG per model
+  - one compact combined 2x4 grid PNG with all standalong plots and a combined comparison in a single figure
 """
 from __future__ import annotations
 
@@ -17,15 +13,15 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-
+# Use the paths of the validation results for plotting
 RESULT_FILES = {
     "cbm":                Path("artifacts/cbm/cbm_eval20_validation_v1.json"),
     "multi_cbm":          Path("artifacts/multicbm/multicbm_eval20_validation_v3.json"),
     "cf":                 Path("artifacts/cf/item-knn_validation_v1.json"),
     "als":                Path("artifacts/als/als_validation_v1.json"),
     "hybrid":             Path("artifacts/hybrid/hybrid_validation_v1.json"),
-    "cbm_us":             Path("artifacts2/cbm_country/cbm_United States_1.00_full.json"),
-    "multi_cbm_us":       Path("artifacts2/multicbm2/multicbm_eval20_validation_genre_v1.json"),
+    "cbm_genre":          Path("artifacts2/cbm/cbm_eval20_validation_v1.json"),
+    "multi_cbm_genre":    Path("artifacts2/multicbm2/multicbm_eval20_validation_genre_v1.json"),
 }
 
 TITLES = {
@@ -34,8 +30,8 @@ TITLES = {
     "cf": "Item-KNN (CF)",
     "als": "Implicit ALS",
     "hybrid": "Hybrid (CF + CBM)",
-    "cbm_us": "CBM \u2014 US subset + genre",
-    "multi_cbm_us": "Multi-CBM \u2014 US subset + genre",
+    "cbm_genre": "CBM \u2014 genre",
+    "multi_cbm_genre": "Multi-CBM \u2014 genre",
 }
 
 # hyperparameters to name in each panel's "best config" annotation
@@ -44,8 +40,8 @@ HYPERPARAM_KEYS = {
     "multi_cbm": ("alpha", "gw", "km"),
     "cf": ("alpha", "neighbours", "min_cooccurrence", "weighting"),
     "als": ("alpha", "factors", "iterations", "regularization"),
-    "cbm_us": ("alpha",),
-    "multi_cbm_us": ("alpha", "gw", "km"),
+    "cbm_genre": ("alpha",),
+    "multi_cbm_genre": ("alpha", "gw", "km"),
 }
 
 K_PRIMARY = 20  # metric suffix used for selection / plotting (falls back to @10)
@@ -62,12 +58,6 @@ plt.rcParams.update({
     "ytick.labelsize": 7,
 })
 
-
-# ---------------------------------------------------------------------------
-# Parsing: handles both JSON shapes
-#      A) flat dict  {config_key: metrics}            (cbm, multi_cbm, country variants)
-#      B) {"runs": [{"configuration": {...}, "metrics": {...}}]}   (cf, als, hybrid)
-# ---------------------------------------------------------------------------
 
 def _metric(metrics: dict, name: str, k: int = K_PRIMARY) -> float | None:
     for candidate_k in (k, 20, 10):
@@ -86,7 +76,7 @@ def _looks_numeric(text: str) -> bool:
 
 
 def _parse_config_key(key: str) -> dict:
-    """'0.95' -> {'alpha': 0.95}; 'alpha_0.90_gw_0.30_km_16' -> {'alpha':0.9,'gw':0.3,'km':16}."""
+    """'0.95' -> {'alpha': 0.95} for CBM model; 'alpha_0.90_gw_0.30_km_16' -> {'alpha':0.9,'gw':0.3,'km':16} for Multi-CBM model."""
     if _looks_numeric(key):
         return {"alpha": float(key)}
     parts = key.split("_")
@@ -149,10 +139,7 @@ def config_parts(record: dict, keys_to_show: tuple[str, ...]) -> list[str]:
     return parts or ["config"]
 
 
-# ---------------------------------------------------------------------------
-# 3. Panel plotting functions
-# ---------------------------------------------------------------------------
-
+# Plotting functions
 def plot_sweep_panel(ax, records: list[dict], title: str, hyperparam_keys: tuple[str, ...]) -> None:
     """Recall@k across every validation configuration, sorted, best one highlighted
     and annotated with its other metrics."""
@@ -164,9 +151,7 @@ def plot_sweep_panel(ax, records: list[dict], title: str, hyperparam_keys: tuple
     colors = ["#a9c6e8"] * len(records_sorted)
     colors[best_idx] = "#d1495b"
 
-    # Auto-zoom the y-axis when recall values are tightly clustered (e.g. CF/ALS
-    # sweeps often sit within a few % of each other), otherwise start bars at 0
-    # so the true proportional scale stays honest.
+    # Auto-zoom the y-axis when recall values are tightly clustered
     value_min, value_max = min(recalls), max(recalls)
     value_range = value_max - value_min
     mean_recall = float(np.mean(recalls))
@@ -185,10 +170,6 @@ def plot_sweep_panel(ax, records: list[dict], title: str, hyperparam_keys: tuple
     ax.axhline(mean_recall, color="#444444", linestyle="--", linewidth=0.8)
 
     best = records_sorted[best_idx]
-    # mean is folded into the same box (rather than a separate floating label)
-    # so the two annotations can never visually collide. Each hyperparameter
-    # gets its own line (instead of one comma-joined line) so wide configs
-    # (e.g. CF's 4 hyperparameters) don't force the box wider than the panel.
     lines = [f"mean={mean_recall:.4f}", "best:"] + [f"  {p}" for p in config_parts(best, hyperparam_keys)]
     for label, key in (("ndcg", "ndcg"), ("hit_rate", "hit_rate"), ("coverage", "coverage")):
         if best.get(key) is not None:
@@ -222,7 +203,7 @@ def plot_hybrid_trend_panel(ax, records: list[dict], title: str) -> None:
     ax.set_xlabel("cf_weight")
     ax.set_ylabel(f"recall@{K_PRIMARY}", color=color_recall)
     ax.tick_params(axis="y", labelcolor=color_recall)
-    ax.invert_xaxis()  # reads left-to-right as cf_weight decreases
+    ax.invert_xaxis()
 
     ax2 = ax.twinx()
     ax2.plot(cf_weights, coverages, marker="s", ms=3, lw=1.3, color=color_coverage,
@@ -263,16 +244,11 @@ def plot_summary_panel(ax, best_by_model: dict[str, dict]) -> None:
     ax.spines[["top", "right"]].set_visible(False)
 
 
-# ---------------------------------------------------------------------------
-# 4. Assemble figures
-# ---------------------------------------------------------------------------
-
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     all_records = {name: load_results(path) for name, path in RESULT_FILES.items()}
     best_by_model = {name: max(recs, key=lambda r: r["recall"]) for name, recs in all_records.items()}
 
-    # ---- individual standalone panels ----
     for name, records in all_records.items():
         fig, ax = plt.subplots(figsize=(3.3, 2.4))
         if name == "hybrid":
@@ -293,10 +269,10 @@ def main() -> None:
     plt.close(fig)
     print(f"saved: {out}")
 
-    # ---- combined compact 2x4 figure ----
+    # 2*4 combined panels
     fig, axes = plt.subplots(2, 4, figsize=(13, 5.6))
     axes = axes.ravel()
-    order = ["cbm", "multi_cbm", "cf", "als", "hybrid", "cbm_us", "multi_cbm_us"]
+    order = ["cbm", "multi_cbm", "cf", "als", "hybrid", "cbm_genre", "multi_cbm_genre"]
     for ax, name in zip(axes, order):
         records = all_records[name]
         if name == "hybrid":
@@ -305,6 +281,7 @@ def main() -> None:
             plot_sweep_panel(ax, records, TITLES[name], HYPERPARAM_KEYS[name])
     plot_summary_panel(axes[7], best_by_model)
 
+    fig.suptitle("Validation Results for Trainable Recommenders(CF: Sparse Item-KNN, ALS; CBM: CBM, Multi-CBM; hybrid)")
     fig.tight_layout()
     combined = OUTPUT_DIR / "validation_sweeps_combined.png"
     fig.savefig(combined, bbox_inches="tight")
