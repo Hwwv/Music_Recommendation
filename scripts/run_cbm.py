@@ -1,4 +1,4 @@
-"""Run the Content and Multi-Interest Recommenders"""
+"""Run the Content and Multi-Interest Recommenders (default data version v1)"""
 from __future__ import annotations
 
 import argparse
@@ -20,14 +20,13 @@ from music_recommender.evaluation import evaluate_topk, assert_unseen_recommenda
 from music_recommender.models import ContentRecommender
 
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
-CBM_OUTPUT_DIR = ROOT / "artifacts" / "cbm_cont"
+CBM_OUTPUT_DIR = ROOT / "artifacts" / "cbm"
 
 DATASET_VERSION = "feature_graph_u5_i2_v1"
 SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"
 FEATURE_SCHEMA_VERSION = "feature_matrix_audio_v1"
-CBM_OUTPUT_VERSION = "cbm_eval20_validation_v2"
+CBM_OUTPUT_VERSION = "cbm_eval20_validation_v1"
 
-N_CONTINUOUS = 10
 ALLOW_TEST = False 
 KS = [10, 20]
 ALPHAS = [0.7, 0.8, 0.9, 0.95]
@@ -193,8 +192,6 @@ def main():
 
     train_interactions = data_loader.load_split_interactions("train")
     features = data_loader.load_feature_mappings()
-
-    features = {item: vec[:N_CONTINUOUS] for item, vec in features.items()}
 
     validation_truths = data_loader.load_split_truth("validation")
     validation_users = sorted(set(validation_truths.keys()))

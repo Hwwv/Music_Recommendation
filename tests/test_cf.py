@@ -47,6 +47,16 @@ class CollaborativeFilteringTests(unittest.TestCase):
         self.assertLessEqual(three.objective(), one.objective() + 1e-8)
         self.assertTrue(set(three.recommend(1, 4)).isdisjoint({"a", "b"}))
 
+    def test_score_not_processed_type(self):
+        cf_model = SparseItemKNN(neighbours=3, min_cooccurrence=2, block_size=2).fit(self.rows)
+        scores = cf_model.score_not_processed(1)
+        self.assertEqual(type(scores), np.ndarray)
+
+    def test_score_not_processed(self):
+        cf_model = SparseItemKNN(neighbours=3, min_cooccurrence=2, block_size=2).fit(self.rows)
+        scores = cf_model.score_not_processed(2)
+        self.assertTrue(np.all(np.isfinite(scores)))
+
 
 if __name__ == "__main__":
     unittest.main()

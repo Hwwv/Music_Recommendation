@@ -143,19 +143,38 @@ class SparseItemKNN:
         self.similarity = sparse.vstack(blocks, format="csr")
         return self
 
-    def recommend(self, user_id: int, k: int = 10) -> list[str]:
+
+    def score(self, user_id: int, k: int = 10):
         user = self.data.user_to_index.get(int(user_id))
         if user is None or k <= 0:
             return []
         history = self.data.confidence.getrow(user)
         scores = (history @ self.similarity).toarray().ravel()
         scores[history.indices] = -np.inf
+        return scores
+
+    def score_not_processed(self, user_id: int):
+        user = self.data.user_to_index.get(int(user_id))
+        if user is None:
+            return np.zeros(self.data.confidence.shape[1], dtype=np.float64)
+        history = self.data.confidence.getrow(user)
+        scores = (history @ self.similarity).toarray().ravel()
+        return scores
+
+
+    def top(self, scores, k: int = 10):
         valid = np.flatnonzero(np.isfinite(scores) & (scores > 0))
         take = min(k, len(valid))
         if not take:
             return []
         top = valid[np.argpartition(scores[valid], -take)[-take:]]
         top = top[np.lexsort((self.data.item_ids[top], -scores[top]))]
+        return top
+
+
+    def recommend(self, user_id: int, k: int = 10) -> list[str]:
+        scores = self.score(user_id, k)
+        top = self.top(scores, k)
         return [str(self.data.item_ids[i]) for i in top]
 
 

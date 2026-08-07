@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Run the Content-Based Recommender on a sampled sub-population of one country.
+"""Run the Content-Based Recommender on a sampled sub-population of one country
+(default data version v1).
 
 This mirrors scripts/run_cbm.py but restricts BOTH the training interactions
 (used to build user profiles / cluster history) and the evaluation users to a
@@ -32,7 +33,7 @@ from music_recommender.models import MultiInterestContentRecommender
 
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
 LISTENING = ROOT / "data" / "databases" / "listening_clean.duckdb"
-MULTI_CBM_OUTPUT_DIR = ROOT / "artifacts" / "multi_cbm_country2"
+MULTI_CBM_OUTPUT_DIR = ROOT / "artifacts" / "multi_cbm_country"
 
 DATASET_VERSION = "feature_graph_u5_i2_v1"
 SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"
@@ -40,8 +41,8 @@ FEATURE_SCHEMA_VERSION = "feature_matrix_audio_v1"
 
 KS = [10, 20]
 ALPHAS = [0.7, 0.8, 0.9, 0.95]
-GLOBAL_WEIGHTS = [0, 0.1, 0.2, 0.3]
-KMEANS = [5, 10, 15, 16, 20]
+GLOBAL_WEIGHTS = [0.1, 0.2, 0.3]
+KMEANS = [8, 16]
 
 
 def parse_args() -> argparse.Namespace:
