@@ -98,7 +98,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split-version", default=SPLIT_VERSION)
     parser.add_argument("--feature-schema-version", default=FEATURE_SCHEMA_VERSION)
     parser.add_argument("--data_db_path", type=Path, default=INTEGRATION, help="Path to the DuckDB database file")
-    parser.add_argument("--allow_test", action="store_true", help="Explicitly allow loading the locked test split",)
+    parser.add_argument(
+        "--allow-test",
+        action="store_true",
+        help="Explicitly allow loading the locked test split",
+    )
     parser.add_argument("--cbm_params", default=CBM_PARAMS)
     parser.add_argument("--cf_params", default=CF_PARAMS)
     parser.add_argument("--multicbm_params", default=MULTI_CBM_PARAMS)
@@ -160,6 +164,10 @@ def plot_result_bars(results: dict, metric_names: list, label_config: bool = Fal
 
 def main() -> dict:
     args = parse_args()
+    if not args.allow_test:
+        raise SystemExit(
+            "Refusing to access the locked test split without --allow-test."
+        )
 
     # load the dataset and configurations for cf and als
     train, truth, dataset_version = load_train_and_test(args.split_version)
