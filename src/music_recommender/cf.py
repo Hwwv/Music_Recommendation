@@ -178,13 +178,6 @@ class SparseItemKNN:
         return [str(self.data.item_ids[i]) for i in top]
 
 
-    def recommend_with_scores(self, user_id: int, k: int = 10):
-        scores = self.score(user_id, k)
-        top =  self.top(scores, k)
-
-        return [str(self.data.item_ids[i]) for i in top], scores[top]
-
-
 class ImplicitALS:
     """Exact alternating least squares for the confidence-weighted implicit objective."""
 

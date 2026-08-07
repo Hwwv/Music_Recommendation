@@ -4,7 +4,7 @@
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / ".tools"
 if TOOLS.exists():
     sys.path.insert(0, str(TOOLS))

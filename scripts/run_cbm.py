@@ -19,8 +19,8 @@ from music_recommender.data_loader import MusicDataLoader
 from music_recommender.evaluation import evaluate_topk, assert_unseen_recommendations
 from music_recommender.models import ContentRecommender
 
-INTEGRATION = ROOT / "data" / "databases2" / "integration.duckdb"
-CBM_OUTPUT_DIR = ROOT / "artifacts2" / "cbm"
+INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
+CBM_OUTPUT_DIR = ROOT / "artifacts" / "cbm"
 
 DATASET_VERSION = "feature_graph_u5_i2_v1"
 SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"

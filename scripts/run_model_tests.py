@@ -44,7 +44,7 @@ INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
 DATASET_VERSION = "feature_graph_u5_i2_v1"
 SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"
 FEATURE_SCHEMA_VERSION = "feature_matrix_audio_v1"
-OUTPUT_VERSION = "test_v3_k1020_cfw4"
+OUTPUT_VERSION = "test_v1"
 DatabaseRow = namedtuple("DatabaseRow", "user_id feature_cluster_id playcount_raw")
 K = [10, 20]
 
@@ -98,7 +98,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split-version", default=SPLIT_VERSION)
     parser.add_argument("--feature-schema-version", default=FEATURE_SCHEMA_VERSION)
     parser.add_argument("--data_db_path", type=Path, default=INTEGRATION, help="Path to the DuckDB database file")
-    parser.add_argument("--allow_test", action="store_truth", help="Allow loading of test split")
+    parser.add_argument("--allow_test", action="store_true", help="Explicitly allow loading the locked test split",)
     parser.add_argument("--cbm_params", default=CBM_PARAMS)
     parser.add_argument("--cf_params", default=CF_PARAMS)
     parser.add_argument("--multicbm_params", default=MULTI_CBM_PARAMS)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tune sparse Item-KNN or implicit ALS on the locked validation split (default data version v1)."""
+"""Tune sparse Item-KNN or implicit ALS on the locked validation split (default data version v1 and running for CF)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from music_recommender.evaluation import assert_unseen_recommendations, evaluate
 
 import duckdb
 
-OUTPUT_DIR = ROOT / "artifacts" / "als"
+OUTPUT_DIR = ROOT / "artifacts" / "cf"
 INTEGRATION = ROOT / "data" / "databases" / "integration.duckdb"
 DatabaseRow = namedtuple("DatabaseRow", "user_id feature_cluster_id playcount_raw")
 

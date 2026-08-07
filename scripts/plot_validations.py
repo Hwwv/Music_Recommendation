@@ -30,8 +30,8 @@ TITLES = {
     "cf": "Item-KNN (CF)",
     "als": "Implicit ALS",
     "hybrid": "Hybrid (CF + CBM)",
-    "cbm_genre": "CBM \u2014 genre",
-    "multi_cbm_genre": "Multi-CBM \u2014 genre",
+    "cbm_genre": r"CBM genre $\bf{(V2\ Genre\ Dataset)}$",
+    "multi_cbm_genre": r"Multi-CBM genre $\bf{(V2\ Genre\ Dataset)}$",
 }
 
 # hyperparameters to name in each panel's "best config" annotation
@@ -45,6 +45,7 @@ HYPERPARAM_KEYS = {
 }
 
 K_PRIMARY = 20  # metric suffix used for selection / plotting (falls back to @10)
+N_V2_MODEL = 2
 OUTPUT_DIR = Path("artifacts/figures")
 
 plt.rcParams.update({
@@ -56,6 +57,8 @@ plt.rcParams.update({
     "legend.fontsize": 6.5,
     "xtick.labelsize": 7,
     "ytick.labelsize": 7,
+    "text.usetex": False,
+    "mathtext.default": "regular",
 })
 
 
@@ -182,6 +185,9 @@ def plot_sweep_panel(ax, records: list[dict], title: str, hyperparam_keys: tuple
         bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#d1495b", lw=0.6, alpha=0.9),
     )
 
+    if "genre" in title:
+        ax.set_facecolor('#f0f0f0')
+
     ax.set_title(title)
     ax.set_ylabel(f"recall@{K_PRIMARY}")
     ax.set_xticks([])
@@ -189,7 +195,7 @@ def plot_sweep_panel(ax, records: list[dict], title: str, hyperparam_keys: tuple
     ax.spines[["top", "right"]].set_visible(False)
 
 
-def plot_hybrid_trend_panel(ax, records: list[dict], title: str) -> None:
+def plot_hybrid_trend_panel(ax, records: list[dict], title: str, chosen_weight:float = 0.5) -> None:
     """recall@k and catalog_coverage@k vs cf_weight, dual y-axis."""
     records_sorted = sorted(records, key=lambda r: r["cf_weight"])
     cf_weights = [r["cf_weight"] for r in records_sorted]
@@ -201,35 +207,35 @@ def plot_hybrid_trend_panel(ax, records: list[dict], title: str) -> None:
     ax.plot(cf_weights, recalls, marker="o", ms=3, lw=1.3, color=color_recall,
             label=f"recall@{K_PRIMARY}")
     ax.set_xlabel("cf_weight")
-    ax.set_ylabel(f"recall@{K_PRIMARY}", color=color_recall)
-    ax.tick_params(axis="y", labelcolor=color_recall)
+    ax.set_ylabel(f"Metric Values")
+    ax.tick_params(axis="y")
     ax.invert_xaxis()
 
-    ax2 = ax.twinx()
-    ax2.plot(cf_weights, coverages, marker="s", ms=3, lw=1.3, color=color_coverage,
+    ax.plot(cf_weights, coverages, marker="s", ms=3, lw=1.3, color=color_coverage,
              linestyle="--", label=f"catalog_coverage@{K_PRIMARY}")
-    ax2.set_ylabel(f"coverage@{K_PRIMARY}", color=color_coverage)
-    ax2.tick_params(axis="y", labelcolor=color_coverage)
 
-    best_idx = int(np.argmax(recalls))
-    ax.scatter([cf_weights[best_idx]], [recalls[best_idx]], color=color_recall, s=35,
+    try:
+        chosen_index = cf_weights.index(chosen_weight)
+    except ValueError:
+        chosen_index = min(range(len(cf_weights)), key=lambda i: abs(cf_weights[i]-chosen_weight))
+
+    ax.scatter([chosen_weight], recalls[chosen_index], color=color_recall, s=35,
                zorder=5, edgecolor="black", linewidth=0.5)
     ax.annotate(
-        f"best cf_weight={cf_weights[best_idx]:g}\nrecall={recalls[best_idx]:.4f}",
-        xy=(cf_weights[best_idx], recalls[best_idx]), xytext=(0, -20), textcoords="offset points",
-        fontsize=6, bbox=dict(boxstyle="round,pad=0.2", fc="white", ec=color_recall, lw=0.6, alpha=0.9),
+        f"chosen cf_weight={chosen_weight:g}\nrecall={recalls[chosen_index]:.4f}\ncoverage={coverages[chosen_index]:.4f}",
+        xy=(cf_weights[chosen_index], recalls[chosen_index]), xytext=(0.7, 0.7), textcoords="axes fraction",
+        fontsize=6, ha="left", bbox=dict(boxstyle="round,pad=0.2", fc="white", ec=color_recall, lw=0.6, alpha=0.9,),
     )
 
     lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines1 + lines2, labels1 + labels2, bbox_to_anchor=(-0.02, 0.05), loc="lower left", frameon=False)
+    ax.legend(lines1, labels1, bbox_to_anchor=(-0.02, 0.05), loc="lower left", frameon=False)
     ax.set_title(title)
     ax.spines["top"].set_visible(False)
 
 
 def plot_summary_panel(ax, best_by_model: dict[str, dict]) -> None:
     """Bonus panel: best validation recall@k achieved by each model, side by side."""
-    names = list(best_by_model.keys())
+    names = list(best_by_model.keys())[:-N_V2_MODEL]
     values = [best_by_model[name]["recall"] for name in names]
     order = np.argsort(values)[::-1]
     names = [names[i] for i in order]
@@ -281,7 +287,7 @@ def main() -> None:
             plot_sweep_panel(ax, records, TITLES[name], HYPERPARAM_KEYS[name])
     plot_summary_panel(axes[7], best_by_model)
 
-    fig.suptitle("Validation Results for Trainable Recommenders(CF: Sparse Item-KNN, ALS; CBM: CBM, Multi-CBM; hybrid)")
+    fig.suptitle("Validation Results for Trainable Recommenders(CF: Sparse Item-KNN, ALS; CBM: CBM, Multi-CBM; hybrid)", fontweight='bold')
     fig.tight_layout()
     combined = OUTPUT_DIR / "validation_sweeps_combined.png"
     fig.savefig(combined, bbox_inches="tight")
