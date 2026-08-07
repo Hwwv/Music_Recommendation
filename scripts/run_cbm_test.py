@@ -1,4 +1,4 @@
-"""Run the Content Recommenders"""
+"""Run the Content Recommenders (default data version v1)"""
 from __future__ import annotations
 
 import argparse

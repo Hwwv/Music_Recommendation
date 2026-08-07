@@ -1,4 +1,4 @@
-"""Run the Content and Multi-Interest Recommenders"""
+"""Run the Content and Multi-Interest Recommenders (default data version v1)"""
 from __future__ import annotations
 
 import argparse
@@ -22,9 +22,9 @@ from music_recommender.models import ContentRecommender
 INTEGRATION = ROOT / "data" / "databases2" / "integration.duckdb"
 CBM_OUTPUT_DIR = ROOT / "artifacts2" / "cbm"
 
-DATASET_VERSION = "feature_graph_u5_i2_v2"
-SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v2"
-FEATURE_SCHEMA_VERSION = "feature_matrix_audio_genre_v1"
+DATASET_VERSION = "feature_graph_u5_i2_v1"
+SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"
+FEATURE_SCHEMA_VERSION = "feature_matrix_audio_v1"
 CBM_OUTPUT_VERSION = "cbm_eval20_validation_v1"
 
 ALLOW_TEST = False 

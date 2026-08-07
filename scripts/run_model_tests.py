@@ -1,3 +1,5 @@
+"""Assess model performances on the test dataset using configurations decided based on the validation dataset."""
+
 from __future__ import annotations
 
 import argparse
@@ -34,7 +36,7 @@ ALS_PARAMS = {
     "iterations": 20,
     "regularization": 0.1
     }
-HYBRID_PARAMS = {"cf_weight": 0.4}
+HYBRID_PARAMS = {"cf_weight": 0.5}
 
 BASELINE_DIR = ROOT / "artifacts" / "baselines" / "baselines_eval20_test_v1.json"
 OUTPUT_DIR = ROOT / "artifacts" / "test2"
@@ -96,7 +98,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split-version", default=SPLIT_VERSION)
     parser.add_argument("--feature-schema-version", default=FEATURE_SCHEMA_VERSION)
     parser.add_argument("--data_db_path", type=Path, default=INTEGRATION, help="Path to the DuckDB database file")
-    parser.add_argument("--allow_test", action="store_false", help="Allow loading of test split")
+    parser.add_argument("--allow_test", action="store_truth", help="Allow loading of test split")
     parser.add_argument("--cbm_params", default=CBM_PARAMS)
     parser.add_argument("--cf_params", default=CF_PARAMS)
     parser.add_argument("--multicbm_params", default=MULTI_CBM_PARAMS)

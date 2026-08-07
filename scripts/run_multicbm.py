@@ -1,4 +1,4 @@
-"""Run the Content and Multi-Interest Recommenders"""
+"""Run the Content and Multi-Interest Recommenders (default data version v1)"""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,7 @@ MULTICBM_OUTPUT_DIR = ROOT / "artifacts" / "multicbm"
 DATASET_VERSION = "feature_graph_u5_i2_v1"
 SPLIT_VERSION = "feature_split_u5_i2_eval20_seed42_v1"
 FEATURE_SCHEMA_VERSION = "feature_matrix_audio_v1"
-MULTICBM_OUTPUT_VERSION = "multicbm_eval20_validation_v3"
+MULTICBM_OUTPUT_VERSION = "multicbm_eval20_validation_v1"
 
 ALLOW_TEST = False 
 KS = [10, 20]

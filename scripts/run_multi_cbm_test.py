@@ -1,4 +1,4 @@
-"""Run the Multi-Interest Content Recommender"""
+"""Run the Multi-Interest Content Recommender (default data version v1)."""
 from __future__ import annotations
 
 import argparse

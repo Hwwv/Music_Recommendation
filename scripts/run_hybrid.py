@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tune sparse Item-KNN or implicit ALS on the locked validation split."""
+"""Tune sparse Item-KNN or implicit ALS on the locked validation split (default data version v1)."""
 
 from __future__ import annotations
 

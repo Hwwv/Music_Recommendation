@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Run the Multi-Interest Content Recommender on a sampled sub-population of one country.
+"""Run the Multi-Interest Content Recommender on a sampled sub-population of one country
+(default data version v1).
 
 This mirrors scripts/run_multi_cbm_test.py but restricts BOTH the training interactions
 (used to build user profiles / cluster history) and the evaluation users to a
