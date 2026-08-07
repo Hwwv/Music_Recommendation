@@ -36,7 +36,7 @@ ALS_PARAMS = {
     "iterations": 20,
     "regularization": 0.1
     }
-HYBRID_PARAMS = {"cf_weight": 0.5}
+HYBRID_PARAMS = {"cf_weight": 0.4}
 
 BASELINE_DIR = ROOT / "artifacts" / "baselines" / "baselines_eval20_test_v1.json"
 OUTPUT_DIR = ROOT / "artifacts" / "test2"
@@ -158,8 +158,8 @@ def plot_result_bars(results: dict, metric_names: list, label_config: bool = Fal
         output_dir.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(output_dir, dpi=150, bbox_inches='tight')
         print(f"plot saved to {output_dir}")
-
-    plt.show()
+    else:
+        plt.show()
     
 
 def main() -> dict:
@@ -319,7 +319,8 @@ def plot_main(results, config=False, save=True, baseline=None):
 
 
 if __name__ == "__main__":
-    output_dir = OUTPUT_DIR / f"{OUTPUT_VERSION}.json"
+    args = parse_args()
+    output_path = args.output_dir / f"{args.output_version}.json"
     baseline_dir = BASELINE_DIR
 
     baseline_results = None
@@ -328,9 +329,9 @@ if __name__ == "__main__":
             baseline_data = json.load(f)
             baseline_results = baseline_data['models']
 
-    if output_dir.exists():
+    if output_path.exists():
         print("plotting from existing results")
-        with open(output_dir, 'r') as f:
+        with open(output_path, 'r') as f:
             data = json.load(f)
             results = data['metric_results']
             plot_main(results=results, save=True, config=False, baseline=baseline_results)
